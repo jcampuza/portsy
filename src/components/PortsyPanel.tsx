@@ -14,6 +14,22 @@ interface PortsyPanelProps {
 
 type View = 'main' | 'settings'
 
+const shellClass = 'flex min-h-screen w-full flex-col gap-3 p-3.5'
+const headerClass = 'flex items-start justify-between gap-3'
+const titleClass = 'm-0 text-[22px] leading-[1.1] font-semibold'
+const subtitleClass = 'mt-1 mb-0 text-[13px] text-muted'
+const buttonBaseClass =
+  'inline-flex min-h-8 items-center justify-center rounded-md border border-border bg-panel px-2.5 py-1.5 text-sm text-text transition-colors enabled:cursor-pointer enabled:hover:border-accent disabled:cursor-not-allowed disabled:opacity-50'
+const primaryButtonClass = `${buttonBaseClass} border-accent bg-accent text-white enabled:hover:border-accent-strong enabled:hover:bg-accent-strong`
+const dangerButtonClass = `${buttonBaseClass} border-danger/45 bg-danger-bg text-danger enabled:hover:border-danger`
+const compactButtonClass = `${buttonBaseClass} min-w-[54px] shrink-0`
+const compactDangerButtonClass = `${dangerButtonClass} min-w-[54px] shrink-0`
+const panelClass = 'rounded-lg border border-border bg-panel'
+const inputClass =
+  'min-h-[34px] w-full rounded-md border border-border bg-panel px-2 py-1.5 text-text outline-none transition-colors placeholder:text-muted/75 focus:border-accent'
+const textareaClass = `${inputClass} min-h-[74px] resize-y`
+const labelClass = 'grid gap-1.5 text-xs text-muted'
+
 export function PortsyPanel({
   snapshot,
   settings,
@@ -127,39 +143,46 @@ export function PortsyPanel({
 
   if (view === 'settings') {
     return (
-      <main class="app-shell settings-view">
-        <header class="settings-header">
-          <button type="button" class="back-button" onClick={() => setView('main')}>
+      <main class={shellClass}>
+        <header class="flex items-start justify-start gap-3">
+          <button type="button" class={`${buttonBaseClass} shrink-0`} onClick={() => setView('main')}>
             Back
           </button>
           <div>
-            <h1>Settings</h1>
-            <p>Configure watched ports and hidden processes</p>
+            <h1 class={titleClass}>Settings</h1>
+            <p class={subtitleClass}>Configure watched ports and hidden processes</p>
           </div>
         </header>
 
-        {activeMessage && <div class="message" role="status">{activeMessage}</div>}
+        {activeMessage && (
+          <div class={`${panelClass} px-2.5 py-2 text-[13px] text-success`} role="status">
+            {activeMessage}
+          </div>
+        )}
 
-        <section class="settings-panel" aria-label="Settings">
-          <label>
+        <section class={`${panelClass} flex min-h-0 flex-1 flex-col gap-2.5 overflow-auto p-3`} aria-label="Settings">
+          <label class={labelClass}>
             Port ranges
             <input
+              class={inputClass}
               value={draftRanges}
               onInput={(event) => setDraftRanges(event.currentTarget.value)}
               placeholder="3000-9999, 5173"
             />
           </label>
-          <label class="check-row">
+          <label class="flex items-center gap-2 text-sm text-text">
             <input
+              class="h-4 w-4 accent-accent"
               type="checkbox"
               checked={launchAtLogin}
               onChange={(event) => setLaunchAtLogin(event.currentTarget.checked)}
             />
             Launch at login
           </label>
-          <label>
+          <label class={labelClass}>
             Excluded processes
             <textarea
+              class={textareaClass}
               value={draftExcludedProcessNames}
               onInput={(event) => setDraftExcludedProcessNames(event.currentTarget.value)}
               placeholder="Google Chrome, Hammerspoon, Raycast"
@@ -167,8 +190,8 @@ export function PortsyPanel({
           </label>
         </section>
 
-        <footer class="bottom-actions">
-          <button type="button" class="primary full-width" onClick={saveDraftSettings} disabled={busyKey === 'settings'}>
+        <footer class="flex shrink-0 items-center gap-2">
+          <button type="button" class={`${primaryButtonClass} w-full`} onClick={saveDraftSettings} disabled={busyKey === 'settings'}>
             Save Settings
           </button>
         </footer>
@@ -177,71 +200,89 @@ export function PortsyPanel({
   }
 
   return (
-    <main class="app-shell">
-      <header class="topbar">
+    <main class={shellClass}>
+      <header class={headerClass}>
         <div>
-          <h1>Portsy</h1>
-          <p>{entries.length} watched TCP port{entries.length === 1 ? '' : 's'} in use</p>
+          <h1 class={titleClass}>Portsy</h1>
+          <p class={subtitleClass}>{entries.length} watched TCP port{entries.length === 1 ? '' : 's'} in use</p>
         </div>
-        <div class="toolbar">
-          <button type="button" class="icon-button" onClick={onRefresh} disabled={loading} title="Refresh ports">
+        <div class="flex shrink-0 items-center gap-2">
+          <button type="button" class={`${buttonBaseClass} min-w-[72px]`} onClick={onRefresh} disabled={loading} title="Refresh ports">
             Refresh
           </button>
-          <button type="button" class="icon-button" onClick={openSettings} title="Settings">
+          <button type="button" class={`${buttonBaseClass} min-w-[72px]`} onClick={openSettings} title="Settings">
             Settings
           </button>
         </div>
       </header>
 
-      {activeMessage && <div class="message" role="status">{activeMessage}</div>}
+      {activeMessage && (
+        <div class={`${panelClass} px-2.5 py-2 text-[13px] text-success`} role="status">
+          {activeMessage}
+        </div>
+      )}
 
       {confirmKillAll && (
-        <section class="confirm-panel" role="dialog" aria-label="Confirm kill all">
-          <h2>Confirm Kill All</h2>
-          <p>{killableEntries.length} process{killableEntries.length === 1 ? '' : 'es'} will receive SIGTERM.</p>
-          <ul>
+        <section class={`${panelClass} flex flex-col gap-2.5 p-3`} role="dialog" aria-label="Confirm kill all">
+          <h2 class="m-0 text-base font-semibold">Confirm Kill All</h2>
+          <p class="m-0 text-[13px] text-muted">
+            {killableEntries.length} process{killableEntries.length === 1 ? '' : 'es'} will receive SIGTERM.
+          </p>
+          <ul class="m-0 max-h-[150px] list-none overflow-auto p-0">
             {killableEntries.map((entry) => (
-              <li key={`${entry.pid}:${entry.port}`}>
+              <li class="flex justify-between gap-2.5 border-b border-border py-1.5 text-[13px]" key={`${entry.pid}:${entry.port}`}>
                 <strong>{entry.port}</strong> {getEntryDisplayName(entry)} <span>PID {entry.pid}</span>
               </li>
             ))}
           </ul>
           {disabledKillAll.length > 0 && (
-            <p class="muted">{disabledKillAll.length} watched row{disabledKillAll.length === 1 ? '' : 's'} cannot be killed.</p>
+            <p class="m-0 text-[13px] text-muted">
+              {disabledKillAll.length} watched row{disabledKillAll.length === 1 ? '' : 's'} cannot be killed.
+            </p>
           )}
-          <div class="settings-actions">
-            <button type="button" onClick={() => setConfirmKillAll(false)}>Cancel</button>
-            <button type="button" class="danger" onClick={killAllConfirmed} disabled={busyKey === 'kill-all'}>
+          <div class="flex items-center justify-end gap-2">
+            <button type="button" class={buttonBaseClass} onClick={() => setConfirmKillAll(false)}>
+              Cancel
+            </button>
+            <button type="button" class={dangerButtonClass} onClick={killAllConfirmed} disabled={busyKey === 'kill-all'}>
               Confirm
             </button>
           </div>
         </section>
       )}
 
-      <section class="port-list" aria-label="Watched ports">
-        {loading && entries.length === 0 && <div class="empty-state">Scanning watched ports...</div>}
-        {!loading && entries.length === 0 && <div class="empty-state">No watched TCP listeners found.</div>}
+      <section class="flex min-h-0 flex-1 flex-col gap-2 overflow-auto" aria-label="Watched ports">
+        {loading && entries.length === 0 && (
+          <div class={`${panelClass} px-4 py-7 text-center text-muted`}>Scanning watched ports...</div>
+        )}
+        {!loading && entries.length === 0 && (
+          <div class={`${panelClass} px-4 py-7 text-center text-muted`}>No watched TCP listeners found.</div>
+        )}
         {entries.map((entry) => {
           const key = `${entry.pid}:${entry.port}`
           const displayName = getEntryDisplayName(entry)
           return (
-            <article class="port-row" key={key}>
-              <div class="port-main">
-                <div class="port-number">{entry.port}</div>
-                <div class="process-block">
-                  <div class="process-line">
+            <article class={`${panelClass} flex items-start justify-between gap-2.5 p-2.5`} key={key}>
+              <div class="flex min-w-0 gap-2.5">
+                <div class="shrink-0 basis-[58px] rounded-md bg-accent px-1 py-[7px] text-center font-mono text-[15px] leading-none font-bold text-white">
+                  {entry.port}
+                </div>
+                <div class="min-w-0">
+                  <div class="flex flex-wrap items-baseline gap-1.5 text-sm leading-tight">
                     <strong title={entry.command}>{displayName}</strong>
-                    <span>PID {entry.pid}</span>
+                    <span class="text-xs text-muted">PID {entry.pid}</span>
                   </div>
-                  <div class="command-line" title={entry.command}>{entry.processName}</div>
-                  <div class="bind-line">{entry.bindAddresses.join(', ')} | {entry.user}</div>
-                  {entry.killDisabledReason && <div class="disabled-reason">{entry.killDisabledReason}</div>}
+                  <div class="mt-[3px] max-w-60 overflow-hidden text-ellipsis whitespace-nowrap text-xs text-text" title={entry.command}>
+                    {entry.processName}
+                  </div>
+                  <div class="mt-[3px] text-xs text-muted">{entry.bindAddresses.join(', ')} | {entry.user}</div>
+                  {entry.killDisabledReason && <div class="mt-1 text-xs text-warning">{entry.killDisabledReason}</div>}
                 </div>
               </div>
-              <div class="row-actions">
+              <div class="flex shrink-0 items-center gap-2">
                 <button
                   type="button"
-                  class="compact"
+                  class={compactButtonClass}
                   disabled={busyKey === `exclude:${entry.pid}:${entry.port}`}
                   onClick={() => excludeProcess(entry)}
                 >
@@ -249,7 +290,7 @@ export function PortsyPanel({
                 </button>
                 <button
                   type="button"
-                  class="danger compact"
+                  class={compactDangerButtonClass}
                   disabled={Boolean(entry.killDisabledReason) || busyKey === key}
                   onClick={() => killEntry(entry)}
                 >
@@ -261,10 +302,10 @@ export function PortsyPanel({
         })}
       </section>
 
-      <footer class="bottom-actions">
+      <footer class="bottom-actions flex shrink-0 items-center gap-2">
         <button
           type="button"
-          class="danger full-width"
+          class={`${dangerButtonClass} w-full`}
           disabled={killableEntries.length === 0 || busyKey === 'kill-all'}
           onClick={() => setConfirmKillAll(true)}
         >

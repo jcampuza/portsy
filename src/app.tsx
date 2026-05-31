@@ -11,7 +11,6 @@ import {
   startMonitor,
 } from './lib/tauri'
 import { defaultSettings, type AppSettings, type PortEntry, type PortSnapshot } from './lib/types'
-import './app.css'
 
 export function App() {
   const [settings, setSettings] = useState<AppSettings>(defaultSettings)
@@ -85,4 +84,3 @@ export function App() {
     />
   )
 }
-

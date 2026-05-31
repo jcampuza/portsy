@@ -126,7 +126,7 @@ describe('PortsyPanel', () => {
     renderPanel([baseEntry])
 
     const footer = screen.getByRole('button', { name: 'Kill All Watched' }).closest('footer')
-    expect(footer?.className).toBe('bottom-actions')
+    expect(footer).toBeTruthy()
   })
 
   it('parses settings range input', () => {
