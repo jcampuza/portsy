@@ -1,0 +1,26 @@
+[package]
+name = "portsy"
+version = "0.1.0"
+description = "A macOS menu bar utility for watched development ports"
+authors = ["Joseph Campuzano"]
+license = ""
+repository = ""
+edition.workspace = true
+rust-version.workspace = true
+
+[lib]
+name = "portsy_app_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.6.2", features = [] }
+
+[dependencies]
+portsy-core = { path = "../crates/portsy-core" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+log = "0.4"
+tauri = { version = "2.11.2", features = ["tray-icon"] }
+tauri-plugin-autostart = "2.5.1"
+tauri-plugin-log = "2"
+tauri-plugin-store = "2.4.3"

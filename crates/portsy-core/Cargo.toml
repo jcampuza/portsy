@@ -1,0 +1,12 @@
+[package]
+name = "portsy-core"
+version = "0.1.0"
+description = "Reusable port monitoring core for Portsy"
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+libc = "0.2"
+serde = { version = "1.0", features = ["derive"] }
+thiserror = "2.0"
+
