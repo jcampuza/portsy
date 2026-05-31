@@ -122,6 +122,33 @@ describe('PortsyPanel', () => {
     expect(screen.getByLabelText('Watched ports')).toBeTruthy()
   })
 
+  it('saves the keep-open development setting', async () => {
+    const onSaveSettings = vi.fn().mockImplementation(async (settings) => settings)
+
+    render(
+      <PortsyPanel
+        snapshot={snapshot([])}
+        settings={defaultSettings}
+        loading={false}
+        message={null}
+        onRefresh={vi.fn()}
+        onKillPort={vi.fn()}
+        onKillAll={vi.fn()}
+        onSaveSettings={onSaveSettings}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Settings' }))
+    fireEvent.click(screen.getByLabelText('Keep open when unfocused'))
+    fireEvent.click(screen.getByRole('button', { name: 'Save Settings' }))
+
+    await waitFor(() =>
+      expect(onSaveSettings).toHaveBeenCalledWith(
+        expect.objectContaining({ keepOpenWhenUnfocused: true }),
+      ),
+    )
+  })
+
   it('keeps kill all in the bottom action area on the main view', () => {
     renderPanel([baseEntry])
 

@@ -8,7 +8,7 @@ use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     ActivationPolicy, AppHandle, Emitter, Manager, PhysicalPosition, Rect, State, WebviewWindow,
-    WindowEvent,
+    Window, WindowEvent,
 };
 use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
 
@@ -24,6 +24,8 @@ pub struct AppSettings {
     pub refresh_interval_ms: u64,
     pub launch_at_login: bool,
     #[serde(default)]
+    pub keep_open_when_unfocused: bool,
+    #[serde(default)]
     pub excluded_process_names: Vec<String>,
 }
 
@@ -34,6 +36,7 @@ impl Default for AppSettings {
             ranges: config.ranges,
             refresh_interval_ms: config.refresh_interval_ms,
             launch_at_login: false,
+            keep_open_when_unfocused: false,
             excluded_process_names: Vec::new(),
         }
     }
@@ -194,17 +197,17 @@ pub fn run() {
                 app.exit(0);
             }
         })
-        .on_window_event(|window, event| {
-            match event {
-                WindowEvent::CloseRequested { api, .. } => {
-                    api.prevent_close();
-                    let _ = window.hide();
-                }
-                WindowEvent::Focused(false) => {
-                    let _ = window.hide();
-                }
-                _ => {}
+        .on_window_event(|window, event| match event {
+            WindowEvent::CloseRequested { api, .. } => {
+                api.prevent_close();
+                let _ = window.hide();
             }
+            WindowEvent::Focused(false) => {
+                if should_hide_when_unfocused(window) {
+                    let _ = window.hide();
+                }
+            }
+            _ => {}
         })
         .invoke_handler(tauri::generate_handler![
             get_snapshot,
@@ -309,6 +312,18 @@ fn clamp_position(value: f64, min: f64, max: f64) -> f64 {
     } else {
         value.clamp(min, max)
     }
+}
+
+fn should_hide_when_unfocused(window: &Window) -> bool {
+    let Some(state) = window.try_state::<AppState>() else {
+        return true;
+    };
+
+    state
+        .settings
+        .lock()
+        .map(|settings| !settings.keep_open_when_unfocused)
+        .unwrap_or(true)
 }
 
 fn start_monitor_inner(app: AppHandle, state: &AppState) -> CommandResult<()> {

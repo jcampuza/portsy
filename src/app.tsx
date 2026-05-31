@@ -1,5 +1,4 @@
-import { useEffect, useState } from 'preact/hooks'
-import { PortsyPanel } from './components/PortsyPanel'
+import { PortsyPanel } from "./components/PortsyPanel";
 import {
   getSettings,
   getSnapshot,
@@ -9,78 +8,94 @@ import {
   onSnapshot,
   saveSettings,
   startMonitor,
-} from './lib/tauri'
-import { defaultSettings, type AppSettings, type PortEntry, type PortSnapshot } from './lib/types'
+} from "./lib/tauri";
+import { defaultSettings, type AppSettings, type PortEntry, type PortSnapshot } from "./lib/types";
+import { createModel, effect, signal } from "@preact/signals";
+
+const PortsyModel = createModel(() => {
+  const settings = signal(defaultSettings);
+  const snapshot = signal<PortSnapshot | null>(null);
+  const loading = signal(true);
+  const message = signal<string | null>(null);
+
+  const refresh = async () => {
+    try {
+      const next = await getSnapshot();
+      snapshot.value = next;
+    } catch (error) {
+      message.value = error instanceof Error ? error.message : String(error);
+    } finally {
+      loading.value = false;
+    }
+  };
+
+  const unlistenSnapshot = onSnapshot((next) => {
+    snapshot.value = next;
+  });
+
+  const unlistenOpened = onOpened(() => {
+    console.log("onOpened");
+    refresh();
+  });
+
+  effect(() => {
+    (async () => {
+      const [loadedSettings, loadedSnapshot] = await Promise.all([getSettings(), getSnapshot()]);
+      settings.value = loadedSettings;
+      snapshot.value = loadedSnapshot;
+
+      await startMonitor();
+    })();
+
+    return () => {
+      Promise.resolve(unlistenOpened).then((unlisten) => unlisten());
+      Promise.resolve(unlistenSnapshot).then((unlisten) => unlisten());
+    };
+  });
+
+  return {
+    settings,
+    snapshot,
+    loading,
+    message,
+    refresh: () => {
+      refresh();
+    },
+
+    killPort: async (entry: PortEntry) => {
+      const report = await killPort(entry.pid, entry.port);
+      return report;
+    },
+
+    killAllWatched: async (snapshot: PortSnapshot) => {
+      const outcomes = await killAllWatched(snapshot);
+      return outcomes;
+    },
+
+    saveSettings: async (nextSettings: AppSettings) => {
+      const saved = await saveSettings(nextSettings);
+      settings.value = saved;
+      await refresh();
+      return saved;
+    },
+  };
+});
+
+const portsyModel = new PortsyModel();
 
 export function App() {
-  const [settings, setSettings] = useState<AppSettings>(defaultSettings)
-  const [snapshot, setSnapshot] = useState<PortSnapshot | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [message, setMessage] = useState<string | null>(null)
-
-  async function refresh() {
-    setLoading(true)
-    try {
-      const next = await getSnapshot()
-      setSnapshot(next)
-      setMessage(null)
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : String(error))
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  useEffect(() => {
-    let disposed = false
-    const unlisteners: Array<() => void> = []
-
-    async function boot() {
-      try {
-        const [loadedSettings, loadedSnapshot, unlistenSnapshot, unlistenOpened] = await Promise.all([
-          getSettings(),
-          getSnapshot(),
-          onSnapshot((next) => {
-            if (!disposed) setSnapshot(next)
-          }),
-          onOpened(() => {
-            void refresh()
-          }),
-        ])
-        if (disposed) return
-        setSettings(loadedSettings)
-        setSnapshot(loadedSnapshot)
-        unlisteners.push(unlistenSnapshot, unlistenOpened)
-        await startMonitor()
-      } catch (error) {
-        if (!disposed) setMessage(error instanceof Error ? error.message : String(error))
-      } finally {
-        if (!disposed) setLoading(false)
-      }
-    }
-
-    void boot()
-    return () => {
-      disposed = true
-      unlisteners.forEach((unlisten) => unlisten())
-    }
-  }, [])
-
   return (
     <PortsyPanel
-      snapshot={snapshot}
-      settings={settings}
-      loading={loading}
-      message={message}
-      onRefresh={refresh}
+      snapshot={portsyModel.snapshot.value}
+      settings={portsyModel.settings.value}
+      loading={portsyModel.loading.value}
+      message={portsyModel.message.value}
+      onRefresh={() => void portsyModel.refresh()}
       onKillPort={(entry: PortEntry) => killPort(entry.pid, entry.port)}
       onKillAll={killAllWatched}
-      onSaveSettings={async (nextSettings) => {
-        const saved = await saveSettings(nextSettings)
-        setSettings(saved)
-        await refresh()
-        return saved
+      onSaveSettings={(nextSettings) => {
+        return portsyModel.saveSettings(nextSettings);
       }}
     />
-  )
+  );
 }

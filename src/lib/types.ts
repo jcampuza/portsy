@@ -7,6 +7,7 @@ export interface AppSettings {
   ranges: PortRange[]
   refreshIntervalMs: number
   launchAtLogin: boolean
+  keepOpenWhenUnfocused: boolean
   excludedProcessNames: string[]
 }
 
@@ -46,5 +47,6 @@ export const defaultSettings: AppSettings = {
   ranges: [{ start: 3000, end: 9999 }],
   refreshIntervalMs: 2000,
   launchAtLogin: false,
+  keepOpenWhenUnfocused: false,
   excludedProcessNames: [],
 }
