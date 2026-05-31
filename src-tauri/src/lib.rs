@@ -3,7 +3,7 @@ use portsy_core::{
     MonitorConfig, PortRange, PortSnapshot, PortWatcher,
 };
 use serde::{Deserialize, Serialize};
-use std::{fs, path::PathBuf, sync::Mutex};
+use std::{fs, path::PathBuf, process::Command, sync::Mutex};
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
@@ -166,6 +166,22 @@ fn kill_all_watched(
     Ok(outcomes)
 }
 
+#[tauri::command]
+fn open_port(port: u16) -> CommandResult<String> {
+    let url = format!("http://localhost:{port}");
+    Command::new("open")
+        .arg(&url)
+        .status()
+        .map_err(|error| format!("failed to open {url}: {error}"))
+        .and_then(|status| {
+            if status.success() {
+                Ok(url.clone())
+            } else {
+                Err(format!("failed to open {url}: open exited with {status}"))
+            }
+        })
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -215,7 +231,8 @@ pub fn run() {
             get_settings,
             save_settings,
             kill_port,
-            kill_all_watched
+            kill_all_watched,
+            open_port
         ])
         .run(tauri::generate_context!())
         .expect("error while running Portsy");

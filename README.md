@@ -12,22 +12,23 @@ Portsy is a macOS menu bar app for watching local development ports and freeing 
 
 ## Development
 
+Requires [Bun](https://bun.sh) 1.4+.
+
 ```sh
-npm install
-npm run tauri:dev
+bun install
+bun run dev
 ```
 
 ## Checks
 
 ```sh
-npm run test
-npm run build
+bun run test
 cargo test
 ```
 
 ## Build
 
 ```sh
-npm run tauri:build
+bun run build
 ```
 

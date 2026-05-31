@@ -39,6 +39,7 @@ function renderPanel(entries: PortEntry[] = []) {
         message: 'Sent SIGTERM and the port was released.',
       })}
       onKillAll={vi.fn().mockResolvedValue([])}
+      onOpenPort={vi.fn().mockResolvedValue('http://localhost:5173')}
       onSaveSettings={vi.fn().mockImplementation(async (settings) => settings)}
     />,
   )
@@ -100,6 +101,7 @@ describe('PortsyPanel', () => {
         onRefresh={vi.fn()}
         onKillPort={vi.fn()}
         onKillAll={onKillAll}
+        onOpenPort={vi.fn()}
         onSaveSettings={vi.fn()}
       />,
     )
@@ -134,6 +136,7 @@ describe('PortsyPanel', () => {
         onRefresh={vi.fn()}
         onKillPort={vi.fn()}
         onKillAll={vi.fn()}
+        onOpenPort={vi.fn()}
         onSaveSettings={onSaveSettings}
       />,
     )
@@ -154,6 +157,29 @@ describe('PortsyPanel', () => {
 
     const footer = screen.getByRole('button', { name: 'Kill All Watched' }).closest('footer')
     expect(footer).toBeTruthy()
+  })
+
+  it('opens a port in the default browser', async () => {
+    const onOpenPort = vi.fn().mockResolvedValue('http://localhost:5173')
+
+    render(
+      <PortsyPanel
+        snapshot={snapshot([baseEntry])}
+        settings={defaultSettings}
+        loading={false}
+        message={null}
+        onRefresh={vi.fn()}
+        onKillPort={vi.fn()}
+        onKillAll={vi.fn()}
+        onOpenPort={onOpenPort}
+        onSaveSettings={vi.fn()}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open' }))
+
+    await waitFor(() => expect(onOpenPort).toHaveBeenCalledWith(baseEntry))
+    expect(screen.getByText('Opened http://localhost:5173.')).toBeTruthy()
   })
 
   it('parses settings range input', () => {

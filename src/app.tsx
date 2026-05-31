@@ -4,6 +4,7 @@ import {
   getSnapshot,
   killAllWatched,
   killPort,
+  openPort,
   onOpened,
   onSnapshot,
   saveSettings,
@@ -72,6 +73,10 @@ const PortsyModel = createModel(() => {
       return outcomes;
     },
 
+    openPort: async (entry: PortEntry) => {
+      return openPort(entry.port);
+    },
+
     saveSettings: async (nextSettings: AppSettings) => {
       const saved = await saveSettings(nextSettings);
       settings.value = saved;
@@ -93,6 +98,7 @@ export function App() {
       onRefresh={() => void portsyModel.refresh()}
       onKillPort={(entry: PortEntry) => killPort(entry.pid, entry.port)}
       onKillAll={killAllWatched}
+      onOpenPort={(entry: PortEntry) => portsyModel.openPort(entry)}
       onSaveSettings={(nextSettings) => {
         return portsyModel.saveSettings(nextSettings);
       }}

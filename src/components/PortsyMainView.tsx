@@ -16,6 +16,7 @@ interface PortsyMainViewProps {
   onDismissMessage: () => void;
   onExcludeProcess: (entry: PortEntry) => void;
   onKillEntry: (entry: PortEntry) => void;
+  onOpenEntry: (entry: PortEntry) => void;
   onOpenSettings: () => void;
   onRefresh: () => void;
   onShowKillAll: () => void;
@@ -34,6 +35,7 @@ export function PortsyMainView({
   onDismissMessage,
   onExcludeProcess,
   onKillEntry,
+  onOpenEntry,
   onOpenSettings,
   onRefresh,
   onShowKillAll,
@@ -142,6 +144,14 @@ export function PortsyMainView({
                 </div>
               </div>
               <div class="flex shrink-0 items-center gap-2">
+                <Button
+                  size="compact"
+                  disabled={busyKey === `open:${entry.pid}:${entry.port}`}
+                  onClick={() => onOpenEntry(entry)}
+                  title={`Open http://localhost:${entry.port}`}
+                >
+                  Open
+                </Button>
                 <Button
                   size="compact"
                   disabled={busyKey === `exclude:${entry.pid}:${entry.port}`}

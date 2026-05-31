@@ -31,6 +31,7 @@ interface PortsyPanelProps {
   onRefresh: () => void;
   onKillPort: (entry: PortEntry) => Promise<KillReport>;
   onKillAll: (snapshot: PortSnapshot) => Promise<KillOutcome[]>;
+  onOpenPort: (entry: PortEntry) => Promise<string>;
   onSaveSettings: (settings: AppSettings) => Promise<AppSettings>;
 }
 
@@ -44,6 +45,7 @@ export function PortsyPanel({
   onRefresh,
   onKillPort,
   onKillAll,
+  onOpenPort,
   onSaveSettings,
 }: PortsyPanelProps) {
   const [view, setView] = useState<View>("main");
@@ -135,6 +137,19 @@ export function PortsyPanel({
     }
   }
 
+  async function openEntry(entry: PortEntry) {
+    const key = `open:${entry.pid}:${entry.port}`;
+    setBusyKey(key);
+    try {
+      const url = await onOpenPort(entry);
+      setLocalMessage(`Opened ${url}.`);
+    } catch (error) {
+      setLocalMessage(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
   async function killAllConfirmed() {
     if (!snapshot) return;
     setBusyKey("kill-all");
@@ -190,6 +205,7 @@ export function PortsyPanel({
       onDismissMessage={() => setLocalMessage(null)}
       onExcludeProcess={excludeProcess}
       onKillEntry={killEntry}
+      onOpenEntry={openEntry}
       onOpenSettings={openSettings}
       onRefresh={onRefresh}
       onShowKillAll={() => setConfirmKillAll(true)}

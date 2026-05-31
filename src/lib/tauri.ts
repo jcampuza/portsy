@@ -29,6 +29,10 @@ export function killAllWatched(snapshot: PortSnapshot) {
   return invoke<KillOutcome[]>('kill_all_watched', { snapshot })
 }
 
+export function openPort(port: number) {
+  return invoke<string>('open_port', { port })
+}
+
 export function onSnapshot(callback: (snapshot: PortSnapshot) => void) {
   return listen<PortSnapshot>(snapshotEvent, (event) => callback(event.payload))
 }
@@ -36,4 +40,3 @@ export function onSnapshot(callback: (snapshot: PortSnapshot) => void) {
 export function onOpened(callback: () => void) {
   return listen(openedEvent, callback)
 }
-
