@@ -7,7 +7,8 @@ use std::{fs, path::PathBuf, sync::Mutex};
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    AppHandle, Emitter, Manager, State, WindowEvent,
+    ActivationPolicy, AppHandle, Emitter, Manager, PhysicalPosition, Rect, State, WebviewWindow,
+    WindowEvent,
 };
 use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
 
@@ -179,6 +180,7 @@ pub fn run() {
                 )?;
             }
 
+            app.set_activation_policy(ActivationPolicy::Accessory);
             create_tray(app)?;
             let settings = load_settings(app.handle()).unwrap_or_default();
             let _ = configure_autostart(app.handle(), settings.launch_at_login);
@@ -193,9 +195,15 @@ pub fn run() {
             }
         })
         .on_window_event(|window, event| {
-            if let WindowEvent::CloseRequested { api, .. } = event {
-                api.prevent_close();
-                let _ = window.hide();
+            match event {
+                WindowEvent::CloseRequested { api, .. } => {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+                WindowEvent::Focused(false) => {
+                    let _ = window.hide();
+                }
+                _ => {}
             }
         })
         .invoke_handler(tauri::generate_handler![
@@ -226,6 +234,8 @@ fn create_tray(app: &mut tauri::App) -> tauri::Result<()> {
         .show_menu_on_left_click(false)
         .on_tray_icon_event(|tray, event| {
             let TrayIconEvent::Click {
+                position,
+                rect,
                 button: MouseButton::Left,
                 button_state: MouseButtonState::Up,
                 ..
@@ -240,6 +250,7 @@ fn create_tray(app: &mut tauri::App) -> tauri::Result<()> {
                 if visible {
                     let _ = window.hide();
                 } else {
+                    position_window_below_tray(&app, &window, position.x, position.y, rect);
                     let _ = window.show();
                     let _ = window.set_focus();
                     let _ = app.emit("portsy-opened", ());
@@ -249,6 +260,55 @@ fn create_tray(app: &mut tauri::App) -> tauri::Result<()> {
         .build(app)?;
 
     Ok(())
+}
+
+fn position_window_below_tray(
+    app: &AppHandle,
+    window: &WebviewWindow,
+    click_x: f64,
+    click_y: f64,
+    tray_rect: Rect,
+) {
+    let monitor = app
+        .monitor_from_point(click_x, click_y)
+        .ok()
+        .flatten()
+        .or_else(|| window.current_monitor().ok().flatten())
+        .or_else(|| app.primary_monitor().ok().flatten());
+
+    let Some(monitor) = monitor else {
+        return;
+    };
+
+    let scale_factor = monitor.scale_factor();
+    let tray_position = tray_rect.position.to_physical::<f64>(scale_factor);
+    let tray_size = tray_rect.size.to_physical::<f64>(scale_factor);
+    let Ok(window_size) = window.outer_size() else {
+        return;
+    };
+
+    let work_area = monitor.work_area();
+    let min_x = work_area.position.x as f64;
+    let min_y = work_area.position.y as f64;
+    let max_x = min_x + work_area.size.width as f64 - window_size.width as f64;
+    let max_y = min_y + work_area.size.height as f64 - window_size.height as f64;
+
+    let tray_center_x = tray_position.x + tray_size.width / 2.0;
+    let desired_x = tray_center_x - window_size.width as f64 / 2.0;
+    let desired_y = (tray_position.y + tray_size.height).max(min_y);
+
+    let x = clamp_position(desired_x, min_x, max_x);
+    let y = clamp_position(desired_y, min_y, max_y);
+
+    let _ = window.set_position(PhysicalPosition::new(x.round() as i32, y.round() as i32));
+}
+
+fn clamp_position(value: f64, min: f64, max: f64) -> f64 {
+    if max <= min {
+        min
+    } else {
+        value.clamp(min, max)
+    }
 }
 
 fn start_monitor_inner(app: AppHandle, state: &AppState) -> CommandResult<()> {
