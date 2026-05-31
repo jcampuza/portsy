@@ -1,5 +1,60 @@
 import type { PortEntry, PortRange } from "./types";
 
+type Cleanup = () => void;
+
+export function iife(fn: () => void) {
+  return (() => {
+    fn();
+  })();
+}
+
+export function createAsyncListenerCleanup<TArgs extends unknown[]>(
+  listen: (callback: (...args: TArgs) => void) => Promise<Cleanup>,
+  callback: (...args: TArgs) => void,
+  onError?: (error: unknown) => void,
+): Cleanup {
+  let disposed = false;
+  let cleanup: Cleanup | null = null;
+
+  function runCleanup(nextCleanup: Cleanup) {
+    try {
+      nextCleanup();
+    } catch (error) {
+      if (!disposed) {
+        onError?.(error);
+      }
+    }
+  }
+
+  void listen((...args) => {
+    if (!disposed) {
+      callback(...args);
+    }
+  }).then(
+    (nextCleanup) => {
+      if (disposed) {
+        runCleanup(nextCleanup);
+      } else {
+        cleanup = nextCleanup;
+      }
+    },
+    (error) => {
+      if (!disposed) {
+        onError?.(error);
+      }
+    },
+  );
+
+  return () => {
+    disposed = true;
+    const currentCleanup = cleanup;
+    cleanup = null;
+    if (currentCleanup) {
+      runCleanup(currentCleanup);
+    }
+  };
+}
+
 export function formatProcessNames(names: string[]) {
   return names.join(", ");
 }

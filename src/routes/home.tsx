@@ -20,6 +20,7 @@ export const HomeRoute = () => {
       settings={app.settings.value}
       loading={app.loading.value}
       message={app.message.value}
+      onClearMessage={() => app.clearMessage()}
       onRefresh={() => void app.refresh()}
       onKillPort={(entry) => app.killPort(entry)}
       onKillAll={app.killAllWatched}
@@ -37,6 +38,7 @@ interface HomeRouteViewProps {
   settings: AppSettings;
   loading: boolean;
   message: string | null;
+  onClearMessage?: () => void;
   onRefresh: () => void;
   onKillPort: (entry: PortEntry) => Promise<KillReport>;
   onKillAll: (snapshot: PortSnapshot) => Promise<KillOutcome[]>;
@@ -50,6 +52,7 @@ export function HomeRouteView({
   settings,
   loading,
   message,
+  onClearMessage,
   onRefresh,
   onKillPort,
   onKillAll,
@@ -150,7 +153,10 @@ export function HomeRouteView({
       loading={loading}
       onCancelKillAll={() => setConfirmKillAll(false)}
       onConfirmKillAll={killAllConfirmed}
-      onDismissMessage={() => setLocalMessage(null)}
+      onDismissMessage={() => {
+        setLocalMessage(null);
+        onClearMessage?.();
+      }}
       onExcludeProcess={excludeProcess}
       onKillEntry={killEntry}
       onOpenEntry={openEntry}

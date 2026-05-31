@@ -18,6 +18,7 @@
     "@tauri-apps/api": "^2.11.0",
     "@tauri-apps/plugin-autostart": "^2.5.1",
     "@tauri-apps/plugin-store": "^2.4.3",
+    "better-result": "^2.9.2",
     "lucide-preact": "^1.17.0",
     "preact": "^10.29.1",
     "preact-iso": "^2.12.0"

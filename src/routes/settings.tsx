@@ -14,6 +14,7 @@ export const SettingsRoute = () => {
       settings={app.settings.value}
       message={app.message.value}
       onBack={() => location.route("/")}
+      onClearMessage={() => app.clearMessage()}
       onSaveSettings={(nextSettings) => {
         return app.saveSettings(nextSettings);
       }}
@@ -25,6 +26,7 @@ interface SettingsRouteViewProps {
   settings: AppSettings;
   message: string | null;
   onBack: () => void;
+  onClearMessage?: () => void;
   onSaveSettings: (settings: AppSettings) => Promise<AppSettings>;
 }
 
@@ -32,6 +34,7 @@ export function SettingsRouteView({
   settings,
   message,
   onBack,
+  onClearMessage,
   onSaveSettings,
 }: SettingsRouteViewProps) {
   const [busyKey, setBusyKey] = useState<string | null>(null);
@@ -58,7 +61,10 @@ export function SettingsRouteView({
       busyKey={busyKey}
       settings={settings}
       onBack={onBack}
-      onDismissMessage={() => setLocalError(null)}
+      onDismissMessage={() => {
+        setLocalError(null);
+        onClearMessage?.();
+      }}
       onError={(nextError) => setLocalError(nextError)}
       onSaveSettings={saveSettings}
     />

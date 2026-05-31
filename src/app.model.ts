@@ -17,12 +17,15 @@ import {
   type PortSnapshot,
 } from "./lib/types";
 import { createModel, effect, signal, type Model, type ReadonlySignal } from "@preact/signals";
+import { Result } from "better-result";
+import { createAsyncListenerCleanup, iife } from "./lib/utils";
 
 export interface Portsy {
   settings: ReadonlySignal<AppSettings>;
   snapshot: ReadonlySignal<PortSnapshot | null>;
   loading: ReadonlySignal<boolean>;
   message: ReadonlySignal<string | null>;
+  clearMessage: () => void;
   refresh: () => Promise<void>;
   killPort: (entry: PortEntry) => Promise<KillReport>;
   killAllWatched: (snapshot: PortSnapshot) => Promise<KillOutcome[]>;
@@ -32,6 +35,10 @@ export interface Portsy {
 
 export type PortsyModel = Model<Portsy>;
 
+function errorMessage(error: unknown) {
+  return error instanceof Error ? error.message : String(error);
+}
+
 export const PortsyModel = createModel<Portsy>(() => {
   const settings = signal(defaultSettings);
   const snapshot = signal<PortSnapshot | null>(null);
@@ -39,32 +46,69 @@ export const PortsyModel = createModel<Portsy>(() => {
   const message = signal<string | null>(null);
 
   const refresh = async () => {
-    try {
-      const next = await getSnapshot();
-      snapshot.value = next;
-    } catch (error) {
-      message.value = error instanceof Error ? error.message : String(error);
-    } finally {
-      loading.value = false;
-    }
+    const result = await Result.tryPromise({
+      try: getSnapshot,
+      catch: errorMessage,
+    });
+
+    result.match({
+      ok: (next) => {
+        snapshot.value = next;
+        message.value = null;
+      },
+      err: (error) => {
+        message.value = error;
+      },
+    });
+
+    loading.value = false;
   };
 
-  const unlistenSnapshot = onSnapshot((next) => {
-    snapshot.value = next;
-  });
+  const cleanupSnapshotListener = createAsyncListenerCleanup(
+    onSnapshot,
+    (next) => {
+      snapshot.value = next;
+    },
+    (error) => {
+      message.value = errorMessage(error);
+    },
+  );
 
-  effect(() => {
-    (async () => {
-      const [loadedSettings, loadedSnapshot] = await Promise.all([getSettings(), getSnapshot()]);
-      settings.value = loadedSettings;
-      snapshot.value = loadedSnapshot;
+  effect(() => cleanupSnapshotListener);
 
-      await startMonitor();
-    })();
+  iife(async () => {
+    const initialState = await Result.tryPromise({
+      try: () => Promise.all([getSettings(), getSnapshot()]),
+      catch: errorMessage,
+    });
 
-    return () => {
-      Promise.resolve(unlistenSnapshot).then((unlisten) => unlisten());
-    };
+    const shouldStartMonitor = initialState.match({
+      ok: ([loadedSettings, loadedSnapshot]) => {
+        settings.value = loadedSettings;
+        snapshot.value = loadedSnapshot;
+        return true;
+      },
+      err: (error) => {
+        message.value = error;
+        return false;
+      },
+    });
+
+    if (shouldStartMonitor) {
+      const monitor = await Result.tryPromise({
+        try: startMonitor,
+        catch: errorMessage,
+      });
+
+      monitor.match({
+        ok: () => undefined,
+        err: (error) => {
+          message.value = error;
+        },
+      });
+    }
+
+    loading.value = false;
   });
 
   return {
@@ -72,6 +116,10 @@ export const PortsyModel = createModel<Portsy>(() => {
     snapshot,
     loading,
     message,
+
+    clearMessage: () => {
+      message.value = null;
+    },
 
     refresh: refresh,
 

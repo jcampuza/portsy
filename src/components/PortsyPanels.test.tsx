@@ -153,6 +153,30 @@ describe("HomeRouteView", () => {
     expect(screen.getByLabelText("Watched ports")).toBeTruthy();
   });
 
+  it("clears app messages from the home panel dismiss action", () => {
+    const onClearMessage = vi.fn();
+
+    render(
+      <HomeRouteView
+        snapshot={snapshot([])}
+        settings={defaultSettings}
+        loading={false}
+        message="Refresh failed."
+        onClearMessage={onClearMessage}
+        onRefresh={vi.fn()}
+        onKillPort={vi.fn()}
+        onKillAll={vi.fn()}
+        onOpenPort={vi.fn()}
+        onOpenSettings={vi.fn()}
+        onSaveSettings={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "X" }));
+
+    expect(onClearMessage).toHaveBeenCalledOnce();
+  });
+
   it("keeps kill all in the bottom action area on the main view", () => {
     renderHomePanel([baseEntry]);
 
@@ -194,6 +218,24 @@ describe("SettingsRouteView", () => {
 
     expect(screen.getByRole("heading", { name: "Settings" })).toBeTruthy();
     expect(screen.queryByLabelText("Watched ports")).toBeNull();
+  });
+
+  it("clears app messages from the settings dismiss action", () => {
+    const onClearMessage = vi.fn();
+
+    render(
+      <SettingsRouteView
+        settings={defaultSettings}
+        message="Save failed."
+        onBack={vi.fn()}
+        onClearMessage={onClearMessage}
+        onSaveSettings={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "X" }));
+
+    expect(onClearMessage).toHaveBeenCalledOnce();
   });
 
   it("saves the keep-open development setting when toggled", async () => {
