@@ -87,14 +87,18 @@ impl AppState {
 }
 
 #[tauri::command]
-fn get_snapshot(state: State<'_, AppState>) -> CommandResult<PortSnapshot> {
+async fn get_snapshot(state: State<'_, AppState>) -> CommandResult<PortSnapshot> {
     let settings = state
         .settings
         .lock()
         .map_err(|_| "settings lock was poisoned".to_string())?
         .clone();
+    let config = settings.monitor_config();
 
-    let snapshot = scan_now(&settings.monitor_config()).map_err(|error| error.to_string())?;
+    let snapshot = tauri::async_runtime::spawn_blocking(move || scan_now(&config))
+        .await
+        .map_err(|error| error.to_string())?
+        .map_err(|error| error.to_string())?;
     Ok(filter_snapshot(snapshot, &settings))
 }
 
@@ -146,18 +150,22 @@ fn save_settings(
 }
 
 #[tauri::command]
-fn kill_port(state: State<'_, AppState>, pid: u32, port: u16) -> CommandResult<KillReport> {
+async fn kill_port(state: State<'_, AppState>, pid: u32, port: u16) -> CommandResult<KillReport> {
     let settings = state
         .settings
         .lock()
         .map_err(|_| "settings lock was poisoned".to_string())?
         .clone();
+    let config = settings.monitor_config();
 
-    kill_pid_for_port(&settings.monitor_config(), pid, port).map_err(|error| error.to_string())
+    tauri::async_runtime::spawn_blocking(move || kill_pid_for_port(&config, pid, port))
+        .await
+        .map_err(|error| error.to_string())?
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
-fn kill_all_watched(
+async fn kill_all_watched(
     state: State<'_, AppState>,
     snapshot: PortSnapshot,
 ) -> CommandResult<Vec<KillOutcome>> {
@@ -168,21 +176,25 @@ fn kill_all_watched(
         .clone();
 
     let snapshot = filter_snapshot(snapshot, &settings);
-    let outcomes = core_kill_all_watched(&settings.monitor_config(), &snapshot)
-        .into_iter()
-        .map(|result| match result {
-            Ok(report) => KillOutcome {
-                ok: true,
-                report: Some(report),
-                error: None,
-            },
-            Err(error) => KillOutcome {
-                ok: false,
-                report: None,
-                error: Some(error.to_string()),
-            },
-        })
-        .collect();
+    let config = settings.monitor_config();
+    let outcomes =
+        tauri::async_runtime::spawn_blocking(move || core_kill_all_watched(&config, &snapshot))
+            .await
+            .map_err(|error| error.to_string())?
+            .into_iter()
+            .map(|result| match result {
+                Ok(report) => KillOutcome {
+                    ok: true,
+                    report: Some(report),
+                    error: None,
+                },
+                Err(error) => KillOutcome {
+                    ok: false,
+                    report: None,
+                    error: Some(error.to_string()),
+                },
+            })
+            .collect();
 
     Ok(outcomes)
 }

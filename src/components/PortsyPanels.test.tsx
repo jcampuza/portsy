@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/preact";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { defaultSettings, type PortEntry, type PortSnapshot } from "../lib/types";
+import { defaultSettings, type KillReport, type PortEntry, type PortSnapshot } from "../lib/types";
 import { getEntryDisplayName, parseProcessNames, parseRanges } from "../lib/utils";
 import { HomeRouteView } from "../routes/home";
 import { SettingsRouteView } from "../routes/settings";
@@ -91,6 +91,48 @@ describe("HomeRouteView", () => {
     expect(screen.getByText("Root-owned process; Portsy will not request sudo.")).toBeTruthy();
   });
 
+  it("shows the row stop action as busy while killing a port", async () => {
+    let resolveKill!: (report: KillReport) => void;
+    const killPromise = new Promise<KillReport>((resolve) => {
+      resolveKill = resolve;
+    });
+    const onKillPort = vi.fn(() => killPromise);
+
+    render(
+      <HomeRouteView
+        snapshot={snapshot([baseEntry])}
+        settings={defaultSettings}
+        loading={false}
+        message={null}
+        onRefresh={vi.fn()}
+        onKillPort={onKillPort}
+        onKillAll={vi.fn()}
+        onOpenPort={vi.fn()}
+        onOpenSettings={vi.fn()}
+        onSaveSettings={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Kill" }));
+
+    await waitFor(() => {
+      const button = screen.getByRole("button", { name: "Kill" });
+      expect(button).toHaveProperty("disabled", true);
+      expect(button.getAttribute("aria-busy")).toBe("true");
+      expect(button.getAttribute("title")).toBe("Stopping");
+    });
+
+    resolveKill({
+      port: 5173,
+      pid: 123,
+      processName: "node",
+      terminated: true,
+      forced: false,
+      message: "Sent SIGTERM and the port was released.",
+    });
+    await waitFor(() => expect(onKillPort).toHaveBeenCalledWith(baseEntry));
+  });
+
   it("confirms kill all before invoking the action", async () => {
     const onKillAll = vi.fn().mockResolvedValue([
       {
@@ -172,9 +214,72 @@ describe("HomeRouteView", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "X" }));
+    const toast = screen.getByRole("status");
+    expect(toast.className).toContain("fixed");
+    expect(toast.className).toContain("bottom-3");
+    expect(toast.className).toContain("left-3");
+
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss notification" }));
 
     expect(onClearMessage).toHaveBeenCalledOnce();
+  });
+
+  it("clears app messages after three seconds", async () => {
+    vi.useFakeTimers();
+    const onClearMessage = vi.fn();
+
+    render(
+      <HomeRouteView
+        snapshot={snapshot([])}
+        settings={defaultSettings}
+        loading={false}
+        message="Refresh failed."
+        onClearMessage={onClearMessage}
+        onRefresh={vi.fn()}
+        onKillPort={vi.fn()}
+        onKillAll={vi.fn()}
+        onOpenPort={vi.fn()}
+        onOpenSettings={vi.fn()}
+        onSaveSettings={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole("status")).toBeTruthy();
+    expect(onClearMessage).not.toHaveBeenCalled();
+
+    vi.advanceTimersByTime(2_999);
+    expect(onClearMessage).not.toHaveBeenCalled();
+
+    vi.advanceTimersByTime(1);
+    await waitFor(() => expect(onClearMessage).toHaveBeenCalledOnce());
+  });
+
+  it("does not restart the toast timer when the view rerenders with the same message", async () => {
+    vi.useFakeTimers();
+    const onClearMessage = vi.fn();
+    const props = {
+      snapshot: snapshot([]),
+      settings: defaultSettings,
+      loading: false,
+      message: "Refresh failed.",
+      onClearMessage,
+      onRefresh: vi.fn(),
+      onKillPort: vi.fn(),
+      onKillAll: vi.fn(),
+      onOpenPort: vi.fn(),
+      onOpenSettings: vi.fn(),
+      onSaveSettings: vi.fn(),
+    };
+
+    const { rerender } = render(<HomeRouteView {...props} />);
+
+    vi.advanceTimersByTime(2_000);
+    rerender(<HomeRouteView {...props} snapshot={{ ...props.snapshot, scannedAtMs: 2 }} />);
+    vi.advanceTimersByTime(999);
+    expect(onClearMessage).not.toHaveBeenCalled();
+
+    vi.advanceTimersByTime(1);
+    await waitFor(() => expect(onClearMessage).toHaveBeenCalledOnce());
   });
 
   it("keeps kill all in the bottom action area on the main view", () => {
@@ -233,7 +338,7 @@ describe("SettingsRouteView", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "X" }));
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss notification" }));
 
     expect(onClearMessage).toHaveBeenCalledOnce();
   });

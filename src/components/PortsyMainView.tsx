@@ -1,4 +1,4 @@
-import { ExternalLink, EyeOff, RefreshCw, Settings, SquareStop } from "lucide-preact";
+import { ExternalLink, EyeOff, LoaderCircle, RefreshCw, Settings, SquareStop } from "lucide-preact";
 import type { PortEntry } from "../lib/types";
 import { PortsyStatusMessage } from "./PortsyStatusMessage";
 import { Button, Panel, Shell, ViewHeader } from "./PortsyUi";
@@ -99,8 +99,20 @@ export function PortsyMainView({
           )}
           <div class="flex items-center justify-end gap-2">
             <Button onClick={onCancelKillAll}>Cancel</Button>
-            <Button variant="danger" onClick={onConfirmKillAll} disabled={busyKey === "kill-all"}>
-              Confirm
+            <Button
+              variant="danger"
+              onClick={onConfirmKillAll}
+              disabled={busyKey === "kill-all"}
+              aria-busy={busyKey === "kill-all"}
+            >
+              {busyKey === "kill-all" ? (
+                <>
+                  <LoaderCircle aria-hidden="true" class="mr-1.5 animate-spin" size={15} />
+                  Stopping...
+                </>
+              ) : (
+                "Confirm"
+              )}
             </Button>
           </div>
         </Panel>
@@ -116,6 +128,7 @@ export function PortsyMainView({
         {entries.map((entry) => {
           const key = `${entry.pid}:${entry.port}`;
           const displayName = getEntryDisplayName(entry);
+          const isStopping = busyKey === key;
           return (
             <Panel
               as="article"
@@ -168,11 +181,16 @@ export function PortsyMainView({
                   size="icon"
                   variant="danger"
                   aria-label="Kill"
-                  disabled={Boolean(entry.killDisabledReason) || busyKey === key}
+                  aria-busy={isStopping}
+                  disabled={Boolean(entry.killDisabledReason) || isStopping}
                   onClick={() => onKillEntry(entry)}
-                  title="Kill"
+                  title={isStopping ? "Stopping" : "Kill"}
                 >
-                  <SquareStop aria-hidden="true" size={15} />
+                  {isStopping ? (
+                    <LoaderCircle aria-hidden="true" class="animate-spin" size={15} />
+                  ) : (
+                    <SquareStop aria-hidden="true" size={15} />
+                  )}
                 </Button>
               </div>
             </Panel>
