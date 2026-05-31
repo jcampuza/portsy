@@ -1,4 +1,4 @@
-import { ExternalLink, EyeOff, RefreshCw, Settings, Trash2 } from "lucide-preact";
+import { ExternalLink, EyeOff, RefreshCw, Settings, SquareStop } from "lucide-preact";
 import type { PortEntry } from "../lib/types";
 import { PortsyStatusMessage } from "./PortsyStatusMessage";
 import { Button, Panel, Shell, ViewHeader } from "./PortsyUi";
@@ -172,7 +172,7 @@ export function PortsyMainView({
                   onClick={() => onKillEntry(entry)}
                   title="Kill"
                 >
-                  <Trash2 aria-hidden="true" size={15} />
+                  <SquareStop aria-hidden="true" size={15} />
                 </Button>
               </div>
             </Panel>
@@ -180,9 +180,8 @@ export function PortsyMainView({
         })}
       </section>
 
-      <footer class="bottom-actions flex shrink-0 items-center gap-2">
+      <footer class="bottom-actions mt-auto flex shrink-0 items-center justify-end gap-2">
         <Button
-          fullWidth
           variant="danger"
           disabled={killableEntries.length === 0 || busyKey === "kill-all"}
           onClick={onShowKillAll}

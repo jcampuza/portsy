@@ -3,7 +3,6 @@ import { listen } from '@tauri-apps/api/event'
 import type { AppSettings, KillOutcome, KillReport, PortSnapshot } from './types'
 
 export const snapshotEvent = 'portsy-snapshot'
-export const openedEvent = 'portsy-opened'
 
 export function getSnapshot() {
   return invoke<PortSnapshot>('get_snapshot')
@@ -35,8 +34,4 @@ export function openPort(port: number) {
 
 export function onSnapshot(callback: (snapshot: PortSnapshot) => void) {
   return listen<PortSnapshot>(snapshotEvent, (event) => callback(event.payload))
-}
-
-export function onOpened(callback: () => void) {
-  return listen(openedEvent, callback)
 }

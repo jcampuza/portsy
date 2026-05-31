@@ -8,7 +8,6 @@ interface PortsySettingsViewProps {
   draftRanges: string;
   keepOpenWhenUnfocused: boolean;
   launchAtLogin: boolean;
-  toastMessage: string | null;
   onBack: () => void;
   onDismissMessage: () => void;
   onDraftExcludedProcessNamesBlur: () => void;
@@ -26,7 +25,6 @@ export function PortsySettingsView({
   draftRanges,
   keepOpenWhenUnfocused,
   launchAtLogin,
-  toastMessage,
   onBack,
   onDismissMessage,
   onDraftExcludedProcessNamesBlur,
@@ -97,15 +95,6 @@ export function PortsySettingsView({
           />
         </FieldLabel>
       </Panel>
-
-      {toastMessage && (
-        <div
-          class="fixed bottom-4 left-1/2 z-50 -translate-x-1/2 rounded-full border border-border bg-panel px-3 py-2 text-sm text-success shadow-lg"
-          role="status"
-        >
-          {toastMessage}
-        </div>
-      )}
     </Shell>
   );
 }

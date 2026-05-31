@@ -1,4 +1,4 @@
-import { useEffect, useState } from "preact/hooks";
+import { useState } from "preact/hooks";
 import { useLocation } from "preact-iso";
 import { useApp } from "../app.provider";
 import { PortsySettingsView } from "../components/PortsySettingsView";
@@ -36,21 +36,12 @@ export function SettingsRouteView({
 }: SettingsRouteViewProps) {
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [localError, setLocalError] = useState<string | null>(null);
-  const [toastMessage, setToastMessage] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!toastMessage) return;
-
-    const timeout = window.setTimeout(() => setToastMessage(null), 2500);
-    return () => window.clearTimeout(timeout);
-  }, [toastMessage]);
 
   async function saveSettings(key: string, nextSettings: AppSettings) {
     setBusyKey(key);
     try {
       const saved = await onSaveSettings(nextSettings);
       setLocalError(null);
-      setToastMessage("Settings saved.");
       return saved;
     } catch (error) {
       setLocalError(error instanceof Error ? error.message : String(error));
@@ -66,9 +57,7 @@ export function SettingsRouteView({
       activeMessage={localError ?? message}
       busyKey={busyKey}
       settings={settings}
-      toastMessage={toastMessage}
       onBack={onBack}
-      onClearToast={() => setToastMessage(null)}
       onDismissMessage={() => setLocalError(null)}
       onError={(nextError) => setLocalError(nextError)}
       onSaveSettings={saveSettings}
@@ -80,9 +69,7 @@ interface SettingsDraftViewProps {
   activeMessage: string | null;
   busyKey: string | null;
   settings: AppSettings;
-  toastMessage: string | null;
   onBack: () => void;
-  onClearToast: () => void;
   onDismissMessage: () => void;
   onError: (message: string) => void;
   onSaveSettings: (key: string, settings: AppSettings) => Promise<AppSettings>;
@@ -92,9 +79,7 @@ function SettingsDraftView({
   activeMessage,
   busyKey,
   settings,
-  toastMessage,
   onBack,
-  onClearToast,
   onDismissMessage,
   onError,
   onSaveSettings,
@@ -114,7 +99,6 @@ function SettingsDraftView({
       ranges = parseRanges(draftRanges);
     } catch (error) {
       onError(error instanceof Error ? error.message : String(error));
-      onClearToast();
       return;
     }
 
@@ -149,7 +133,6 @@ function SettingsDraftView({
 
   function saveLaunchAtLoginOnChange(nextLaunchAtLogin: boolean) {
     const previousLaunchAtLogin = launchAtLogin;
-    onClearToast();
     setLaunchAtLogin(nextLaunchAtLogin);
 
     void onSaveSettings("launchAtLogin", {
@@ -161,7 +144,6 @@ function SettingsDraftView({
 
   function saveKeepOpenWhenUnfocusedOnChange(nextKeepOpenWhenUnfocused: boolean) {
     const previousKeepOpenWhenUnfocused = keepOpenWhenUnfocused;
-    onClearToast();
     setKeepOpenWhenUnfocused(nextKeepOpenWhenUnfocused);
 
     void onSaveSettings("keepOpenWhenUnfocused", {
@@ -183,17 +165,14 @@ function SettingsDraftView({
       onDismissMessage={onDismissMessage}
       onDraftExcludedProcessNamesBlur={saveExcludedProcessNamesOnBlur}
       onDraftExcludedProcessNamesChange={(value) => {
-        onClearToast();
         setDraftExcludedProcessNames(value);
       }}
       onDraftRangesBlur={saveRangesOnBlur}
       onDraftRangesChange={(value) => {
-        onClearToast();
         setDraftRanges(value);
       }}
       onKeepOpenWhenUnfocusedChange={saveKeepOpenWhenUnfocusedOnChange}
       onLaunchAtLoginChange={saveLaunchAtLoginOnChange}
-      toastMessage={toastMessage}
     />
   );
 }

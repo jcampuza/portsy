@@ -110,8 +110,7 @@ export function HomeRouteView({
     const key = `open:${entry.pid}:${entry.port}`;
     setBusyKey(key);
     try {
-      const url = await onOpenPort(entry);
-      setLocalMessage(`Opened ${url}.`);
+      await onOpenPort(entry);
     } catch (error) {
       setLocalMessage(error instanceof Error ? error.message : String(error));
     } finally {

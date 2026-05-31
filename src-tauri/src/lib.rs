@@ -1,6 +1,7 @@
 use portsy_core::{
     kill_all_watched as core_kill_all_watched, kill_pid_for_port, scan_now, KillReport,
-    MonitorConfig, PortRange, PortSnapshot, PortWatcher,
+    MonitorConfig, MonitorMode, PortRange, PortSnapshot, PortWatcher,
+    DEFAULT_BACKGROUND_REFRESH_INTERVAL_MS,
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -56,6 +57,7 @@ impl AppSettings {
         MonitorConfig {
             ranges: self.ranges.clone(),
             refresh_interval_ms: self.refresh_interval_ms,
+            background_refresh_interval_ms: DEFAULT_BACKGROUND_REFRESH_INTERVAL_MS,
         }
     }
 }
@@ -71,6 +73,7 @@ pub struct KillOutcome {
 struct AppState {
     settings: Mutex<AppSettings>,
     watcher: Mutex<Option<PortWatcher>>,
+    monitor_mode: Mutex<MonitorMode>,
 }
 
 impl AppState {
@@ -78,6 +81,7 @@ impl AppState {
         Self {
             settings: Mutex::new(settings),
             watcher: Mutex::new(None),
+            monitor_mode: Mutex::new(MonitorMode::Background),
         }
     }
 }
@@ -234,10 +238,12 @@ pub fn run() {
             WindowEvent::CloseRequested { api, .. } => {
                 api.prevent_close();
                 let _ = window.hide();
+                set_monitor_mode(window.app_handle(), MonitorMode::Background);
             }
             WindowEvent::Focused(false) => {
                 if should_hide_when_unfocused(window) {
                     let _ = window.hide();
+                    set_monitor_mode(window.app_handle(), MonitorMode::Background);
                 }
             }
             _ => {}
@@ -286,11 +292,13 @@ fn create_tray(app: &mut tauri::App) -> tauri::Result<()> {
                 let visible = window.is_visible().unwrap_or(false);
                 if visible {
                     let _ = window.hide();
+                    set_monitor_mode(&app, MonitorMode::Background);
                 } else {
+                    set_monitor_mode(&app, MonitorMode::Foreground);
                     position_window_below_tray(&app, &window, position.x, position.y, rect);
                     let _ = window.show();
                     let _ = window.set_focus();
-                    let _ = app.emit("portsy-opened", ());
+                    refresh_monitor_now(&app);
                 }
             }
         })
@@ -360,6 +368,30 @@ fn should_hide_when_unfocused(window: &Window) -> bool {
         .unwrap_or(true)
 }
 
+fn set_monitor_mode(app: &AppHandle, mode: MonitorMode) {
+    let Some(state) = app.try_state::<AppState>() else {
+        return;
+    };
+
+    if let Ok(mut current_mode) = state.monitor_mode.lock() {
+        *current_mode = mode;
+    }
+
+    if let Ok(watcher) = state.watcher.lock() {
+        if let Some(watcher) = watcher.as_ref() {
+            watcher.set_mode(mode);
+        }
+    };
+}
+
+fn current_monitor_mode(state: &AppState) -> MonitorMode {
+    state
+        .monitor_mode
+        .lock()
+        .map(|mode| *mode)
+        .unwrap_or(MonitorMode::Background)
+}
+
 fn start_monitor_inner(app: AppHandle, state: &AppState) -> CommandResult<()> {
     let mut watcher = state
         .watcher
@@ -375,7 +407,8 @@ fn start_monitor_inner(app: AppHandle, state: &AppState) -> CommandResult<()> {
         .map_err(|_| "settings lock was poisoned".to_string())?
         .clone();
     let config = settings.monitor_config();
-    *watcher = Some(PortWatcher::spawn(config, move |result| {
+    let monitor_mode = current_monitor_mode(state);
+    *watcher = Some(PortWatcher::spawn(config, monitor_mode, move |result| {
         if let Ok(snapshot) = result {
             let snapshot = filter_snapshot(snapshot, &settings);
             update_tray(&app, snapshot.entries.len());
@@ -384,6 +417,22 @@ fn start_monitor_inner(app: AppHandle, state: &AppState) -> CommandResult<()> {
     }));
 
     Ok(())
+}
+
+fn refresh_monitor_now(app: &AppHandle) {
+    let Some(state) = app.try_state::<AppState>() else {
+        return;
+    };
+    let Ok(settings) = state.settings.lock().map(|settings| settings.clone()) else {
+        return;
+    };
+    let Ok(snapshot) = scan_now(&settings.monitor_config()) else {
+        return;
+    };
+
+    let snapshot = filter_snapshot(snapshot, &settings);
+    update_tray(app, snapshot.entries.len());
+    let _ = app.emit(SNAPSHOT_EVENT, snapshot);
 }
 
 fn filter_snapshot(mut snapshot: PortSnapshot, settings: &AppSettings) -> PortSnapshot {

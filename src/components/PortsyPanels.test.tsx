@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/preact";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/preact";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { defaultSettings, type PortEntry, type PortSnapshot } from "../lib/types";
 import { getEntryDisplayName, parseProcessNames, parseRanges } from "../lib/utils";
@@ -156,8 +156,11 @@ describe("HomeRouteView", () => {
   it("keeps kill all in the bottom action area on the main view", () => {
     renderHomePanel([baseEntry]);
 
-    const footer = screen.getByRole("button", { name: "Kill All Watched" }).closest("footer");
+    const button = screen.getByRole("button", { name: "Kill All Watched" });
+    const footer = button.closest("footer");
     expect(footer).toBeTruthy();
+    expect(footer?.className).toContain("justify-end");
+    expect(button.className).not.toContain("w-full");
   });
 
   it("opens a port in the default browser", async () => {
@@ -181,7 +184,7 @@ describe("HomeRouteView", () => {
     fireEvent.click(screen.getByRole("button", { name: "Open" }));
 
     await waitFor(() => expect(onOpenPort).toHaveBeenCalledWith(baseEntry));
-    expect(screen.getByText("Opened http://localhost:5173.")).toBeTruthy();
+    expect(screen.queryByText("Opened port 5173.")).toBeNull();
   });
 });
 
@@ -215,54 +218,6 @@ describe("SettingsRouteView", () => {
     );
     expect(onBack).not.toHaveBeenCalled();
     expect(screen.queryByRole("button", { name: "Save Settings" })).toBeNull();
-  });
-
-  it("shows saved settings as a temporary bottom toast", async () => {
-    vi.useFakeTimers();
-    const onSaveSettings = vi.fn().mockImplementation(async (settings) => settings);
-
-    render(
-      <SettingsRouteView
-        settings={defaultSettings}
-        message={null}
-        onBack={vi.fn()}
-        onSaveSettings={onSaveSettings}
-      />,
-    );
-
-    await act(async () => {
-      fireEvent.click(screen.getByLabelText("Keep open when unfocused"));
-      await Promise.resolve();
-    });
-
-    expect(screen.getByText("Settings saved.").className).toContain("fixed bottom-4");
-
-    act(() => {
-      vi.advanceTimersByTime(2500);
-    });
-
-    expect(screen.queryByText("Settings saved.")).toBeNull();
-  });
-
-  it("dismisses the saved settings toast when settings change again", async () => {
-    const onSaveSettings = vi.fn().mockImplementation(async (settings) => settings);
-
-    render(
-      <SettingsRouteView
-        settings={defaultSettings}
-        message={null}
-        onBack={vi.fn()}
-        onSaveSettings={onSaveSettings}
-      />,
-    );
-
-    fireEvent.click(screen.getByLabelText("Keep open when unfocused"));
-    await waitFor(() => expect(screen.getByText("Settings saved.")).toBeTruthy());
-
-    fireEvent.input(screen.getByLabelText("Port ranges"), {
-      target: { value: "4000-4002, 5173" },
-    });
-
     expect(screen.queryByText("Settings saved.")).toBeNull();
   });
 

@@ -4,7 +4,6 @@ import {
   killAllWatched,
   killPort,
   openPort,
-  onOpened,
   onSnapshot,
   saveSettings,
   startMonitor,
@@ -54,11 +53,6 @@ export const PortsyModel = createModel<Portsy>(() => {
     snapshot.value = next;
   });
 
-  const unlistenOpened = onOpened(() => {
-    console.log("onOpened");
-    refresh();
-  });
-
   effect(() => {
     (async () => {
       const [loadedSettings, loadedSnapshot] = await Promise.all([getSettings(), getSnapshot()]);
@@ -69,7 +63,6 @@ export const PortsyModel = createModel<Portsy>(() => {
     })();
 
     return () => {
-      Promise.resolve(unlistenOpened).then((unlisten) => unlisten());
       Promise.resolve(unlistenSnapshot).then((unlisten) => unlisten());
     };
   });

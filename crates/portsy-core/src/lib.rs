@@ -3,7 +3,7 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     process::Command,
     sync::{
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU8, Ordering},
         Arc,
     },
     thread::{self, JoinHandle},
@@ -43,6 +43,10 @@ pub enum PortsyError {
 
 pub type Result<T> = std::result::Result<T, PortsyError>;
 
+pub const DEFAULT_FOREGROUND_REFRESH_INTERVAL_MS: u64 = 2_000;
+pub const DEFAULT_BACKGROUND_REFRESH_INTERVAL_MS: u64 = 10_000;
+const MIN_REFRESH_INTERVAL_MS: u64 = 500;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PortRange {
@@ -68,6 +72,7 @@ impl PortRange {
 pub struct MonitorConfig {
     pub ranges: Vec<PortRange>,
     pub refresh_interval_ms: u64,
+    pub background_refresh_interval_ms: u64,
 }
 
 impl Default for MonitorConfig {
@@ -77,7 +82,8 @@ impl Default for MonitorConfig {
                 start: 3000,
                 end: 9999,
             }],
-            refresh_interval_ms: 2_000,
+            refresh_interval_ms: DEFAULT_FOREGROUND_REFRESH_INTERVAL_MS,
+            background_refresh_interval_ms: DEFAULT_BACKGROUND_REFRESH_INTERVAL_MS,
         }
     }
 }
@@ -94,8 +100,34 @@ impl MonitorConfig {
         self.ranges.iter().any(|range| range.contains(port))
     }
 
-    pub fn interval(&self) -> Duration {
-        Duration::from_millis(self.refresh_interval_ms.max(500))
+    pub fn interval(&self, mode: MonitorMode) -> Duration {
+        let interval_ms = match mode {
+            MonitorMode::Foreground => self.refresh_interval_ms,
+            MonitorMode::Background => self.background_refresh_interval_ms,
+        };
+        Duration::from_millis(interval_ms.max(MIN_REFRESH_INTERVAL_MS))
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MonitorMode {
+    Background,
+    Foreground,
+}
+
+impl MonitorMode {
+    fn as_u8(self) -> u8 {
+        match self {
+            Self::Background => 0,
+            Self::Foreground => 1,
+        }
+    }
+
+    fn from_u8(value: u8) -> Self {
+        match value {
+            1 => Self::Foreground,
+            _ => Self::Background,
+        }
     }
 }
 
@@ -255,29 +287,36 @@ pub fn parse_lsof_output(output: &str, config: &MonitorConfig) -> PortSnapshot {
 }
 
 pub struct PortWatcher {
+    mode: Arc<AtomicU8>,
     stop: Arc<AtomicBool>,
     handle: Option<JoinHandle<()>>,
 }
 
 impl PortWatcher {
-    pub fn spawn<F>(config: MonitorConfig, mut on_snapshot: F) -> Self
+    pub fn spawn<F>(config: MonitorConfig, initial_mode: MonitorMode, mut on_snapshot: F) -> Self
     where
         F: FnMut(Result<PortSnapshot>) + Send + 'static,
     {
+        let mode = Arc::new(AtomicU8::new(initial_mode.as_u8()));
+        let mode_thread = Arc::clone(&mode);
         let stop = Arc::new(AtomicBool::new(false));
         let stop_thread = Arc::clone(&stop);
-        let interval = config.interval();
         let handle = thread::spawn(move || {
             while !stop_thread.load(Ordering::SeqCst) {
                 on_snapshot(scan_now(&config));
-                sleep_interruptible(interval, &stop_thread);
+                sleep_until_next_scan(&config, &mode_thread, &stop_thread);
             }
         });
 
         Self {
+            mode,
             stop,
             handle: Some(handle),
         }
+    }
+
+    pub fn set_mode(&self, mode: MonitorMode) {
+        self.mode.store(mode.as_u8(), Ordering::SeqCst);
     }
 
     pub fn stop(&mut self) {
@@ -420,10 +459,16 @@ fn now_ms() -> u128 {
         .as_millis()
 }
 
-fn sleep_interruptible(duration: Duration, stop: &AtomicBool) {
+fn sleep_until_next_scan(config: &MonitorConfig, mode: &AtomicU8, stop: &AtomicBool) {
     let slice = Duration::from_millis(100);
     let mut slept = Duration::ZERO;
-    while slept < duration && !stop.load(Ordering::SeqCst) {
+    loop {
+        let current_mode = MonitorMode::from_u8(mode.load(Ordering::SeqCst));
+        let duration = config.interval(current_mode);
+        if slept >= duration || stop.load(Ordering::SeqCst) {
+            break;
+        }
+
         let next = slice.min(duration - slept);
         thread::sleep(next);
         slept += next;
@@ -450,8 +495,44 @@ mod tests {
                 start: 3000,
                 end: 9999,
             }],
-            refresh_interval_ms: 2_000,
+            refresh_interval_ms: DEFAULT_FOREGROUND_REFRESH_INTERVAL_MS,
+            background_refresh_interval_ms: DEFAULT_BACKGROUND_REFRESH_INTERVAL_MS,
         }
+    }
+
+    #[test]
+    fn monitor_config_uses_mode_specific_intervals() {
+        let config = config();
+
+        assert_eq!(
+            config.interval(MonitorMode::Foreground),
+            Duration::from_millis(DEFAULT_FOREGROUND_REFRESH_INTERVAL_MS)
+        );
+        assert_eq!(
+            config.interval(MonitorMode::Background),
+            Duration::from_millis(DEFAULT_BACKGROUND_REFRESH_INTERVAL_MS)
+        );
+    }
+
+    #[test]
+    fn monitor_config_clamps_short_intervals() {
+        let config = MonitorConfig {
+            ranges: vec![PortRange {
+                start: 3000,
+                end: 9999,
+            }],
+            refresh_interval_ms: 1,
+            background_refresh_interval_ms: 2,
+        };
+
+        assert_eq!(
+            config.interval(MonitorMode::Foreground),
+            Duration::from_millis(MIN_REFRESH_INTERVAL_MS)
+        );
+        assert_eq!(
+            config.interval(MonitorMode::Background),
+            Duration::from_millis(MIN_REFRESH_INTERVAL_MS)
+        );
     }
 
     #[test]
