@@ -4,6 +4,7 @@ export interface PortRange {
 }
 
 export interface AppSettings {
+  lastUpdatedAt: number
   ranges: PortRange[]
   refreshIntervalMs: number
   launchAtLogin: boolean
@@ -44,6 +45,7 @@ export interface KillOutcome {
 }
 
 export const defaultSettings: AppSettings = {
+  lastUpdatedAt: 0,
   ranges: [{ start: 3000, end: 9999 }],
   refreshIntervalMs: 2000,
   launchAtLogin: false,

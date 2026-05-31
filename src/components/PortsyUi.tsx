@@ -83,7 +83,7 @@ interface ButtonProps extends Omit<JSX.ButtonHTMLAttributes<HTMLButtonElement>, 
   children: ComponentChildren;
   class?: string;
   fullWidth?: boolean;
-  size?: "default" | "compact";
+  size?: "default" | "compact" | "icon";
   variant?: "default" | "primary" | "danger";
 }
 
@@ -101,12 +101,14 @@ export function Button({
       {...buttonProps}
       type={type}
       class={cx(
-        "inline-flex min-h-8 items-center justify-center rounded-md border border-border bg-panel px-2.5 py-1.5 text-sm text-text transition-colors enabled:cursor-pointer enabled:hover:border-accent disabled:cursor-not-allowed disabled:opacity-50",
+        "inline-flex min-h-8 items-center justify-center rounded-md border border-border bg-panel text-sm text-text transition-colors enabled:cursor-pointer enabled:hover:border-accent disabled:cursor-not-allowed disabled:opacity-50",
         variant === "primary" &&
           "border-accent bg-accent text-white enabled:hover:border-accent-strong enabled:hover:bg-accent-strong",
         variant === "danger" &&
           "border-danger/45 bg-danger-bg text-danger enabled:hover:border-danger",
+        size !== "icon" && "px-2.5 py-1.5",
         size === "compact" && "min-w-[54px] shrink-0",
+        size === "icon" && "h-8 w-8 shrink-0",
         fullWidth && "w-full",
         className,
       )}

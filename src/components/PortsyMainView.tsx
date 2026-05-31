@@ -1,3 +1,4 @@
+import { ExternalLink, EyeOff, RefreshCw, Settings, Trash2 } from "lucide-preact";
 import type { PortEntry } from "../lib/types";
 import { PortsyStatusMessage } from "./PortsyStatusMessage";
 import { Button, Panel, Shell, ViewHeader } from "./PortsyUi";
@@ -46,15 +47,16 @@ export function PortsyMainView({
         actions={
           <div class="flex shrink-0 items-center gap-2">
             <Button
-              class="min-w-[72px]"
+              size="icon"
+              aria-label="Refresh"
               onClick={onRefresh}
               disabled={loading}
-              title="Refresh ports"
+              title="Refresh"
             >
-              Refresh
+              <RefreshCw aria-hidden="true" size={16} />
             </Button>
-            <Button class="min-w-[72px]" onClick={onOpenSettings} title="Settings">
-              Settings
+            <Button size="icon" aria-label="Settings" onClick={onOpenSettings} title="Settings">
+              <Settings aria-hidden="true" size={16} />
             </Button>
           </div>
         }
@@ -120,8 +122,8 @@ export function PortsyMainView({
               class="flex items-start justify-between gap-2.5 p-2.5"
               key={key}
             >
-              <div class="flex min-w-0 gap-2.5">
-                <div class="shrink-0 basis-[58px] rounded-md bg-accent px-1 py-[7px] text-center font-mono text-[15px] leading-none font-bold text-white">
+              <div class="flex min-w-0 items-start gap-2.5">
+                <div class="flex h-10 w-[58px] shrink-0 items-center justify-center rounded-md bg-accent px-1 text-center font-mono text-[15px] leading-none font-bold text-white">
                   {entry.port}
                 </div>
                 <div class="min-w-0">
@@ -145,27 +147,32 @@ export function PortsyMainView({
               </div>
               <div class="flex shrink-0 items-center gap-2">
                 <Button
-                  size="compact"
+                  size="icon"
+                  aria-label="Open"
                   disabled={busyKey === `open:${entry.pid}:${entry.port}`}
                   onClick={() => onOpenEntry(entry)}
-                  title={`Open http://localhost:${entry.port}`}
+                  title="Open"
                 >
-                  Open
+                  <ExternalLink aria-hidden="true" size={15} />
                 </Button>
                 <Button
-                  size="compact"
+                  size="icon"
+                  aria-label="Hide"
                   disabled={busyKey === `exclude:${entry.pid}:${entry.port}`}
                   onClick={() => onExcludeProcess(entry)}
+                  title="Hide"
                 >
-                  Hide
+                  <EyeOff aria-hidden="true" size={15} />
                 </Button>
                 <Button
-                  size="compact"
+                  size="icon"
                   variant="danger"
+                  aria-label="Kill"
                   disabled={Boolean(entry.killDisabledReason) || busyKey === key}
                   onClick={() => onKillEntry(entry)}
+                  title="Kill"
                 >
-                  Kill
+                  <Trash2 aria-hidden="true" size={15} />
                 </Button>
               </div>
             </Panel>

@@ -3,7 +3,13 @@ use portsy_core::{
     MonitorConfig, PortRange, PortSnapshot, PortWatcher,
 };
 use serde::{Deserialize, Serialize};
-use std::{fs, path::PathBuf, process::Command, sync::Mutex};
+use std::{
+    fs,
+    path::PathBuf,
+    process::Command,
+    sync::Mutex,
+    time::{SystemTime, UNIX_EPOCH},
+};
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
@@ -20,6 +26,8 @@ type CommandResult<T> = Result<T, String>;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AppSettings {
+    #[serde(default)]
+    pub last_updated_at: u64,
     pub ranges: Vec<PortRange>,
     pub refresh_interval_ms: u64,
     pub launch_at_login: bool,
@@ -33,6 +41,7 @@ impl Default for AppSettings {
     fn default() -> Self {
         let config = MonitorConfig::default();
         Self {
+            last_updated_at: 0,
             ranges: config.ranges,
             refresh_interval_ms: config.refresh_interval_ms,
             launch_at_login: false,
@@ -103,12 +112,20 @@ fn get_settings(state: State<'_, AppState>) -> CommandResult<AppSettings> {
 fn save_settings(
     app: AppHandle,
     state: State<'_, AppState>,
-    settings: AppSettings,
+    mut settings: AppSettings,
 ) -> CommandResult<AppSettings> {
     settings
         .monitor_config()
         .validate()
         .map_err(|error| error.to_string())?;
+
+    let previous_last_updated_at = state
+        .settings
+        .lock()
+        .map_err(|_| "settings lock was poisoned".to_string())?
+        .last_updated_at;
+    settings.last_updated_at = now_ms().max(previous_last_updated_at.saturating_add(1));
+
     persist_settings(&app, &settings)?;
     configure_autostart(&app, settings.launch_at_login)?;
 
@@ -425,8 +442,16 @@ fn load_settings(app: &AppHandle) -> CommandResult<AppSettings> {
 
     let contents = fs::read_to_string(&path)
         .map_err(|error| format!("failed to read settings {}: {error}", path.display()))?;
-    serde_json::from_str(&contents)
-        .map_err(|error| format!("failed to parse settings {}: {error}", path.display()))
+    let mut settings: AppSettings = serde_json::from_str(&contents)
+        .map_err(|error| format!("failed to parse settings {}: {error}", path.display()))?;
+    if settings.last_updated_at == 0 {
+        settings.last_updated_at = fs::metadata(&path)
+            .ok()
+            .and_then(|metadata| metadata.modified().ok())
+            .and_then(timestamp_ms)
+            .unwrap_or(1);
+    }
+    Ok(settings)
 }
 
 fn persist_settings(app: &AppHandle, settings: &AppSettings) -> CommandResult<()> {
@@ -449,6 +474,16 @@ fn settings_path(app: &AppHandle) -> CommandResult<PathBuf> {
         )
     })?;
     Ok(dir.join("settings.json"))
+}
+
+fn now_ms() -> u64 {
+    timestamp_ms(SystemTime::now()).unwrap_or(1)
+}
+
+fn timestamp_ms(time: SystemTime) -> Option<u64> {
+    time.duration_since(UNIX_EPOCH)
+        .ok()
+        .and_then(|duration| u64::try_from(duration.as_millis()).ok())
 }
 
 fn configure_autostart(app: &AppHandle, enabled: bool) -> CommandResult<()> {

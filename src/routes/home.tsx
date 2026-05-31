@@ -1,4 +1,7 @@
 import { useState } from "preact/hooks";
+import { useLocation } from "preact-iso";
+import { useApp } from "../app.provider";
+import { PortsyMainView } from "../components/PortsyMainView";
 import type {
   AppSettings,
   KillOutcome,
@@ -6,24 +9,30 @@ import type {
   PortEntry,
   PortSnapshot,
 } from "../lib/types";
-import { PortsyMainView } from "./PortsyMainView";
-import { PortsySettingsView } from "./PortsySettingsView";
-import {
-  formatProcessNames,
-  formatRanges,
-  parseProcessNames,
-  parseRanges,
-} from "../lib/utils";
 
-export {
-  formatProcessNames,
-  formatRanges,
-  getEntryDisplayName,
-  parseProcessNames,
-  parseRanges,
-} from "../lib/utils";
+export const HomeRoute = () => {
+  const app = useApp();
+  const location = useLocation();
 
-interface PortsyPanelProps {
+  return (
+    <HomeRouteView
+      snapshot={app.snapshot.value}
+      settings={app.settings.value}
+      loading={app.loading.value}
+      message={app.message.value}
+      onRefresh={() => void app.refresh()}
+      onKillPort={(entry) => app.killPort(entry)}
+      onKillAll={app.killAllWatched}
+      onOpenPort={(entry) => app.openPort(entry)}
+      onOpenSettings={() => location.route("/settings")}
+      onSaveSettings={(nextSettings) => {
+        return app.saveSettings(nextSettings);
+      }}
+    />
+  );
+};
+
+interface HomeRouteViewProps {
   snapshot: PortSnapshot | null;
   settings: AppSettings;
   loading: boolean;
@@ -32,12 +41,11 @@ interface PortsyPanelProps {
   onKillPort: (entry: PortEntry) => Promise<KillReport>;
   onKillAll: (snapshot: PortSnapshot) => Promise<KillOutcome[]>;
   onOpenPort: (entry: PortEntry) => Promise<string>;
+  onOpenSettings: () => void;
   onSaveSettings: (settings: AppSettings) => Promise<AppSettings>;
 }
 
-type View = "main" | "settings";
-
-export function PortsyPanel({
+export function HomeRouteView({
   snapshot,
   settings,
   loading,
@@ -46,18 +54,10 @@ export function PortsyPanel({
   onKillPort,
   onKillAll,
   onOpenPort,
+  onOpenSettings,
   onSaveSettings,
-}: PortsyPanelProps) {
-  const [view, setView] = useState<View>("main");
+}: HomeRouteViewProps) {
   const [confirmKillAll, setConfirmKillAll] = useState(false);
-  const [draftRanges, setDraftRanges] = useState(formatRanges(settings.ranges));
-  const [draftExcludedProcessNames, setDraftExcludedProcessNames] = useState(
-    formatProcessNames(settings.excludedProcessNames),
-  );
-  const [launchAtLogin, setLaunchAtLogin] = useState(settings.launchAtLogin);
-  const [keepOpenWhenUnfocused, setKeepOpenWhenUnfocused] = useState(
-    settings.keepOpenWhenUnfocused,
-  );
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [localMessage, setLocalMessage] = useState<string | null>(null);
 
@@ -66,40 +66,10 @@ export function PortsyPanel({
   const disabledKillAll = entries.filter((entry) => entry.killDisabledReason);
   const killableEntries = entries.filter((entry) => !entry.killDisabledReason);
 
-  function openSettings() {
-    setDraftRanges(formatRanges(settings.ranges));
-    setDraftExcludedProcessNames(formatProcessNames(settings.excludedProcessNames));
-    setLaunchAtLogin(settings.launchAtLogin);
-    setKeepOpenWhenUnfocused(settings.keepOpenWhenUnfocused);
-    setConfirmKillAll(false);
-    setView("settings");
-  }
-
-  async function saveDraftSettings() {
-    const ranges = parseRanges(draftRanges);
-    setBusyKey("settings");
-    try {
-      const saved = await onSaveSettings({
-        ...settings,
-        ranges,
-        excludedProcessNames: parseProcessNames(draftExcludedProcessNames),
-        launchAtLogin,
-        keepOpenWhenUnfocused,
-      });
-      setDraftRanges(formatRanges(saved.ranges));
-      setDraftExcludedProcessNames(formatProcessNames(saved.excludedProcessNames));
-      setLocalMessage("Settings saved.");
-      setView("main");
-    } catch (error) {
-      setLocalMessage(error instanceof Error ? error.message : String(error));
-    } finally {
-      setBusyKey(null);
-    }
-  }
-
   async function excludeProcess(entry: PortEntry) {
     const processName = entry.processName.trim();
     if (!processName) return;
+
     const existingNames = new Set(settings.excludedProcessNames.map((name) => name.toLowerCase()));
     const excludedProcessNames = existingNames.has(processName.toLowerCase())
       ? settings.excludedProcessNames
@@ -109,11 +79,10 @@ export function PortsyPanel({
 
     setBusyKey(`exclude:${entry.pid}:${entry.port}`);
     try {
-      const saved = await onSaveSettings({
+      await onSaveSettings({
         ...settings,
         excludedProcessNames,
       });
-      setDraftExcludedProcessNames(formatProcessNames(saved.excludedProcessNames));
       setLocalMessage(`Excluded ${processName}.`);
       onRefresh();
     } catch (error) {
@@ -171,26 +140,6 @@ export function PortsyPanel({
     }
   }
 
-  if (view === "settings") {
-    return (
-      <PortsySettingsView
-        activeMessage={activeMessage}
-        busyKey={busyKey}
-        draftExcludedProcessNames={draftExcludedProcessNames}
-        draftRanges={draftRanges}
-        keepOpenWhenUnfocused={keepOpenWhenUnfocused}
-        launchAtLogin={launchAtLogin}
-        onBack={() => setView("main")}
-        onDismissMessage={() => setLocalMessage(null)}
-        onDraftExcludedProcessNamesChange={setDraftExcludedProcessNames}
-        onDraftRangesChange={setDraftRanges}
-        onKeepOpenWhenUnfocusedChange={setKeepOpenWhenUnfocused}
-        onLaunchAtLoginChange={setLaunchAtLogin}
-        onSaveSettings={saveDraftSettings}
-      />
-    );
-  }
-
   return (
     <PortsyMainView
       activeMessage={activeMessage}
@@ -206,7 +155,7 @@ export function PortsyPanel({
       onExcludeProcess={excludeProcess}
       onKillEntry={killEntry}
       onOpenEntry={openEntry}
-      onOpenSettings={openSettings}
+      onOpenSettings={onOpenSettings}
       onRefresh={onRefresh}
       onShowKillAll={() => setConfirmKillAll(true)}
     />

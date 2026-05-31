@@ -8,13 +8,15 @@ interface PortsySettingsViewProps {
   draftRanges: string;
   keepOpenWhenUnfocused: boolean;
   launchAtLogin: boolean;
+  toastMessage: string | null;
   onBack: () => void;
   onDismissMessage: () => void;
+  onDraftExcludedProcessNamesBlur: () => void;
   onDraftExcludedProcessNamesChange: (value: string) => void;
+  onDraftRangesBlur: () => void;
   onDraftRangesChange: (value: string) => void;
   onKeepOpenWhenUnfocusedChange: (value: boolean) => void;
   onLaunchAtLoginChange: (value: boolean) => void;
-  onSaveSettings: () => void;
 }
 
 export function PortsySettingsView({
@@ -24,13 +26,15 @@ export function PortsySettingsView({
   draftRanges,
   keepOpenWhenUnfocused,
   launchAtLogin,
+  toastMessage,
   onBack,
   onDismissMessage,
+  onDraftExcludedProcessNamesBlur,
   onDraftExcludedProcessNamesChange,
+  onDraftRangesBlur,
   onDraftRangesChange,
   onKeepOpenWhenUnfocusedChange,
   onLaunchAtLoginChange,
-  onSaveSettings,
 }: PortsySettingsViewProps) {
   return (
     <Shell>
@@ -59,6 +63,7 @@ export function PortsySettingsView({
           <TextInput
             value={draftRanges}
             onInput={(event) => onDraftRangesChange(event.currentTarget.value)}
+            onBlur={onDraftRangesBlur}
             placeholder="3000-9999, 5173"
           />
         </FieldLabel>
@@ -67,6 +72,7 @@ export function PortsySettingsView({
             class="h-4 w-4 accent-accent"
             type="checkbox"
             checked={launchAtLogin}
+            disabled={busyKey === "launchAtLogin"}
             onChange={(event) => onLaunchAtLoginChange(event.currentTarget.checked)}
           />
           Launch at login
@@ -76,6 +82,7 @@ export function PortsySettingsView({
             class="h-4 w-4 accent-accent"
             type="checkbox"
             checked={keepOpenWhenUnfocused}
+            disabled={busyKey === "keepOpenWhenUnfocused"}
             onChange={(event) => onKeepOpenWhenUnfocusedChange(event.currentTarget.checked)}
           />
           Keep open when unfocused
@@ -85,21 +92,20 @@ export function PortsySettingsView({
           <TextArea
             value={draftExcludedProcessNames}
             onInput={(event) => onDraftExcludedProcessNamesChange(event.currentTarget.value)}
+            onBlur={onDraftExcludedProcessNamesBlur}
             placeholder="Google Chrome, Hammerspoon, Raycast"
           />
         </FieldLabel>
       </Panel>
 
-      <footer class="flex shrink-0 items-center gap-2">
-        <Button
-          fullWidth
-          variant="primary"
-          onClick={onSaveSettings}
-          disabled={busyKey === "settings"}
+      {toastMessage && (
+        <div
+          class="fixed bottom-4 left-1/2 z-50 -translate-x-1/2 rounded-full border border-border bg-panel px-3 py-2 text-sm text-success shadow-lg"
+          role="status"
         >
-          Save Settings
-        </Button>
-      </footer>
+          {toastMessage}
+        </div>
+      )}
     </Shell>
   );
 }
