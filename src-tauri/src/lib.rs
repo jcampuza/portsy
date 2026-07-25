@@ -14,8 +14,8 @@ use std::{
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    ActivationPolicy, AppHandle, Emitter, Manager, PhysicalPosition, Rect, State, WebviewWindow,
-    Window, WindowEvent,
+    ActivationPolicy, AppHandle, Emitter, LogicalPosition, Manager, Monitor, Rect, State,
+    WebviewWindow, Window, WindowEvent,
 };
 use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
 
@@ -289,7 +289,6 @@ fn create_tray(app: &mut tauri::App) -> tauri::Result<()> {
         .show_menu_on_left_click(false)
         .on_tray_icon_event(|tray, event| {
             let TrayIconEvent::Click {
-                position,
                 rect,
                 button: MouseButton::Left,
                 button_state: MouseButtonState::Up,
@@ -307,7 +306,7 @@ fn create_tray(app: &mut tauri::App) -> tauri::Result<()> {
                     set_monitor_mode(&app, MonitorMode::Background);
                 } else {
                     set_monitor_mode(&app, MonitorMode::Foreground);
-                    position_window_below_tray(&app, &window, position.x, position.y, rect);
+                    position_window_below_tray(&app, &window, rect);
                     let _ = window.show();
                     let _ = window.set_focus();
                     refresh_monitor_now(&app);
@@ -319,17 +318,31 @@ fn create_tray(app: &mut tauri::App) -> tauri::Result<()> {
     Ok(())
 }
 
-fn position_window_below_tray(
-    app: &AppHandle,
-    window: &WebviewWindow,
-    click_x: f64,
-    click_y: f64,
-    tray_rect: Rect,
-) {
-    let monitor = app
-        .monitor_from_point(click_x, click_y)
-        .ok()
-        .flatten()
+/// A rectangle in the global logical (point) coordinate space.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct LogicalRect {
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+}
+
+impl LogicalRect {
+    fn contains(&self, x: f64, y: f64) -> bool {
+        x >= self.x && x < self.x + self.width && y >= self.y && y < self.y + self.height
+    }
+}
+
+/// Positions the window under the tray icon, working entirely in logical
+/// points.
+///
+/// Physical coordinates are not usable here: every source (tray rect, monitor
+/// bounds, window size) is scaled by a different display's backing factor, so
+/// on a mixed-DPI multi-monitor setup they do not share a coordinate space.
+/// Logical points are global and consistent, and `set_position` passes a
+/// `LogicalPosition` through untouched.
+fn position_window_below_tray(app: &AppHandle, window: &WebviewWindow, tray_rect: Rect) {
+    let monitor = monitor_under_cursor(app)
         .or_else(|| window.current_monitor().ok().flatten())
         .or_else(|| app.primary_monitor().ok().flatten());
 
@@ -337,27 +350,98 @@ fn position_window_below_tray(
         return;
     };
 
-    let scale_factor = monitor.scale_factor();
-    let tray_position = tray_rect.position.to_physical::<f64>(scale_factor);
-    let tray_size = tray_rect.size.to_physical::<f64>(scale_factor);
-    let Ok(window_size) = window.outer_size() else {
+    let Some(work_area) = logical_work_area(&monitor) else {
         return;
     };
 
-    let work_area = monitor.work_area();
-    let min_x = work_area.position.x as f64;
-    let min_y = work_area.position.y as f64;
-    let max_x = min_x + work_area.size.width as f64 - window_size.width as f64;
-    let max_y = min_y + work_area.size.height as f64 - window_size.height as f64;
+    // The tray rect is scaled by the backing factor of the screen holding the
+    // menu bar, which is the screen that was clicked.
+    let scale_factor = monitor.scale_factor();
+    let tray_position = tray_rect.position.to_logical::<f64>(scale_factor);
+    let tray_size = tray_rect.size.to_logical::<f64>(scale_factor);
+
+    // The window's own size is scaled by whichever screen it currently sits
+    // on, which is not necessarily the one that was clicked.
+    let (Ok(window_size), Ok(window_scale_factor)) = (window.outer_size(), window.scale_factor())
+    else {
+        return;
+    };
+    if window_scale_factor <= 0.0 {
+        return;
+    }
+    let window_size = window_size.to_logical::<f64>(window_scale_factor);
+
+    let min_x = work_area.x;
+    let min_y = work_area.y;
+    let max_x = min_x + work_area.width - window_size.width;
+    let max_y = min_y + work_area.height - window_size.height;
 
     let tray_center_x = tray_position.x + tray_size.width / 2.0;
-    let desired_x = tray_center_x - window_size.width as f64 / 2.0;
+    let desired_x = tray_center_x - window_size.width / 2.0;
     let desired_y = (tray_position.y + tray_size.height).max(min_y);
 
     let x = clamp_position(desired_x, min_x, max_x);
     let y = clamp_position(desired_y, min_y, max_y);
 
-    let _ = window.set_position(PhysicalPosition::new(x.round() as i32, y.round() as i32));
+    let _ = window.set_position(LogicalPosition::new(x, y));
+}
+
+/// Finds the monitor the tray icon was clicked on.
+///
+/// The cursor is used rather than the tray event's own click position. Both
+/// are physical, but the click is scaled by the backing factor of whichever
+/// screen holds the menu bar — a factor we cannot recover, leaving the click
+/// ambiguous between overlapping displays. The cursor is always scaled by the
+/// *primary* monitor's factor, which is known, so it converts back to logical
+/// points exactly.
+fn monitor_under_cursor(app: &AppHandle) -> Option<Monitor> {
+    let cursor = app.cursor_position().ok()?;
+    let primary_scale_factor = app.primary_monitor().ok().flatten()?.scale_factor();
+    if primary_scale_factor <= 0.0 {
+        return None;
+    }
+
+    let cursor = cursor.to_logical::<f64>(primary_scale_factor);
+    let monitors = app.available_monitors().ok()?;
+
+    monitors
+        .into_iter()
+        .find(|monitor| logical_bounds(monitor).is_some_and(|b| b.contains(cursor.x, cursor.y)))
+}
+
+fn logical_bounds(monitor: &Monitor) -> Option<LogicalRect> {
+    let scale_factor = monitor.scale_factor();
+    if scale_factor <= 0.0 {
+        return None;
+    }
+
+    let position = monitor.position().to_logical::<f64>(scale_factor);
+    let size = monitor.size().to_logical::<f64>(scale_factor);
+
+    Some(LogicalRect {
+        x: position.x,
+        y: position.y,
+        width: size.width,
+        height: size.height,
+    })
+}
+
+fn logical_work_area(monitor: &Monitor) -> Option<LogicalRect> {
+    let scale_factor = monitor.scale_factor();
+    if scale_factor <= 0.0 {
+        return None;
+    }
+
+    let work_area = monitor.work_area();
+    let position = work_area.position.to_logical::<f64>(scale_factor);
+    let size = work_area.size.to_logical::<f64>(scale_factor);
+
+    Some(LogicalRect {
+        x: position.x,
+        y: position.y,
+        width: size.width,
+        height: size.height,
+    })
 }
 
 fn clamp_position(value: f64, min: f64, max: f64) -> f64 {
@@ -557,5 +641,92 @@ fn configure_autostart(app: &AppHandle, enabled: bool) -> CommandResult<()> {
         manager
             .disable()
             .map_err(|error| format!("failed to disable launch at login: {error}"))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // A 2x built-in laptop screen at the logical origin, with a 1x external to
+    // its right. Their physical bounds as Tauri reports them overlap (the
+    // built-in spans 0..3024, the external claims 1512..3432), which is why
+    // monitor selection has to happen in logical points.
+    const BUILT_IN: LogicalRect = LogicalRect {
+        x: 0.0,
+        y: 0.0,
+        width: 1512.0,
+        height: 945.0,
+    };
+    const EXTERNAL: LogicalRect = LogicalRect {
+        x: 1512.0,
+        y: 0.0,
+        width: 1920.0,
+        height: 1080.0,
+    };
+
+    // The cursor is always scaled by the primary monitor's factor, whichever
+    // screen it is actually over. Here the 2x built-in is primary.
+    fn logical_cursor(physical_x: f64, physical_y: f64) -> (f64, f64) {
+        (physical_x / 2.0, physical_y / 2.0)
+    }
+
+    #[test]
+    fn cursor_over_the_built_in_screen_selects_the_built_in_screen() {
+        let (x, y) = logical_cursor(1400.0, 24.0);
+
+        assert!(BUILT_IN.contains(x, y));
+        assert!(!EXTERNAL.contains(x, y));
+    }
+
+    #[test]
+    fn cursor_over_the_external_screen_selects_the_external_screen() {
+        // The case that a per-monitor scale guess gets wrong: the raw physical
+        // x of 4000 sits inside the built-in's reported physical bounds.
+        let (x, y) = logical_cursor(4000.0, 24.0);
+
+        assert!(EXTERNAL.contains(x, y));
+        assert!(!BUILT_IN.contains(x, y));
+    }
+
+    #[test]
+    fn cursor_over_the_far_edge_of_the_external_screen_still_selects_it() {
+        let (x, y) = logical_cursor(6862.0, 24.0);
+
+        assert!(EXTERNAL.contains(x, y));
+        assert!(!BUILT_IN.contains(x, y));
+    }
+
+    #[test]
+    fn cursor_over_a_screen_left_of_the_primary_selects_that_screen() {
+        let left_of_primary = LogicalRect {
+            x: -1920.0,
+            y: 0.0,
+            width: 1920.0,
+            height: 1080.0,
+        };
+        let (x, y) = logical_cursor(-1920.0, 24.0);
+
+        assert!(left_of_primary.contains(x, y));
+        assert!(!BUILT_IN.contains(x, y));
+    }
+
+    #[test]
+    fn bounds_exclude_the_far_edges() {
+        assert!(BUILT_IN.contains(0.0, 0.0));
+        assert!(!BUILT_IN.contains(1512.0, 0.0));
+        assert!(!BUILT_IN.contains(0.0, 945.0));
+    }
+
+    #[test]
+    fn clamp_position_keeps_values_inside_the_range() {
+        assert_eq!(clamp_position(50.0, 0.0, 100.0), 50.0);
+        assert_eq!(clamp_position(-10.0, 0.0, 100.0), 0.0);
+        assert_eq!(clamp_position(150.0, 0.0, 100.0), 100.0);
+    }
+
+    #[test]
+    fn clamp_position_falls_back_to_the_minimum_when_the_window_does_not_fit() {
+        assert_eq!(clamp_position(50.0, 0.0, -20.0), 0.0);
     }
 }
