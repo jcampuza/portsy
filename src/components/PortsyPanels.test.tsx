@@ -1,9 +1,23 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/preact";
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { defaultSettings, type KillReport, type PortEntry, type PortSnapshot } from "../lib/types";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { PortsyModel, type PortsyModel as PortsyModelInstance } from "../app.model";
+import { defaultSettings, type PortEntry, type PortSnapshot } from "../lib/types";
 import { getEntryDisplayName, parseProcessNames, parseRanges } from "../lib/utils";
-import { HomeRouteView } from "../routes/home";
-import { SettingsRouteView } from "../routes/settings";
+import { PortsyMainView } from "./PortsyMainView";
+import { PortsySettingsView } from "./PortsySettingsView";
+
+const tauri = vi.hoisted(() => ({
+  getSettings: vi.fn(),
+  getSnapshot: vi.fn(),
+  killAllWatched: vi.fn(),
+  killPort: vi.fn(),
+  openPort: vi.fn(),
+  onSnapshot: vi.fn(),
+  saveSettings: vi.fn(),
+  startMonitor: vi.fn(),
+}));
+
+vi.mock("../lib/tauri", () => tauri);
 
 const baseEntry: PortEntry = {
   protocol: "tcp",
@@ -16,6 +30,13 @@ const baseEntry: PortEntry = {
   killDisabledReason: null,
 };
 
+const loadedSettings = {
+  ...defaultSettings,
+  lastUpdatedAt: 1,
+};
+
+const activeModels: PortsyModelInstance[] = [];
+
 function snapshot(entries: PortEntry[]): PortSnapshot {
   return {
     scannedAtMs: 1,
@@ -24,63 +45,75 @@ function snapshot(entries: PortEntry[]): PortSnapshot {
   };
 }
 
-function renderHomePanel(entries: PortEntry[] = []) {
-  return render(
-    <HomeRouteView
-      snapshot={snapshot(entries)}
-      settings={defaultSettings}
-      loading={false}
-      message={null}
-      onRefresh={vi.fn()}
-      onKillPort={vi.fn().mockResolvedValue({
-        port: 5173,
-        pid: 123,
-        processName: "node",
-        terminated: true,
-        forced: false,
-        message: "Sent SIGTERM and the port was released.",
-      })}
-      onKillAll={vi.fn().mockResolvedValue([])}
-      onOpenPort={vi.fn().mockResolvedValue("http://localhost:5173")}
-      onOpenSettings={vi.fn()}
-      onSaveSettings={vi.fn().mockImplementation(async (settings) => settings)}
-    />,
-  );
+async function createStartedModel(entries: PortEntry[] = []) {
+  tauri.getSettings.mockResolvedValue(loadedSettings);
+  tauri.getSnapshot.mockResolvedValue(snapshot(entries));
+  tauri.onSnapshot.mockReturnValue(Promise.resolve(vi.fn()));
+  tauri.startMonitor.mockResolvedValue(undefined);
+  tauri.saveSettings.mockImplementation(async (settings) => ({
+    ...settings,
+    lastUpdatedAt: settings.lastUpdatedAt + 1,
+  }));
+  tauri.killPort.mockResolvedValue({
+    port: 5173,
+    pid: 123,
+    processName: "node",
+    terminated: true,
+    forced: false,
+    message: "Sent SIGTERM and the port was released.",
+  });
+  tauri.killAllWatched.mockResolvedValue([]);
+  tauri.openPort.mockResolvedValue("http://localhost:5173");
+
+  const model = new PortsyModel();
+  activeModels.push(model);
+  await model.start();
+  return model;
 }
 
-function renderSettingsPanel() {
-  return render(
-    <SettingsRouteView
-      settings={defaultSettings}
-      message={null}
-      onBack={vi.fn()}
-      onSaveSettings={vi.fn().mockImplementation(async (settings) => settings)}
-    />,
-  );
+async function renderHomePanel(entries: PortEntry[] = []) {
+  const model = await createStartedModel(entries);
+  return {
+    model,
+    ...render(<PortsyMainView app={model} onOpenSettings={vi.fn()} />),
+  };
 }
+
+async function renderSettingsPanel() {
+  const model = await createStartedModel();
+  return {
+    model,
+    ...render(<PortsySettingsView app={model} onBack={vi.fn()} />),
+  };
+}
+
+beforeEach(() => {
+  vi.clearAllMocks();
+});
 
 afterEach(() => {
   vi.useRealTimers();
+  activeModels.splice(0).forEach((model) => model.stop());
   cleanup();
 });
 
-describe("HomeRouteView", () => {
-  it("renders the empty state", () => {
-    renderHomePanel();
+describe("PortsyMainView", () => {
+  it("renders the empty state", async () => {
+    await renderHomePanel();
 
     expect(screen.getByText("No watched TCP listeners found.")).toBeTruthy();
   });
 
-  it("renders a populated port row", () => {
-    renderHomePanel([baseEntry]);
+  it("renders a populated port row", async () => {
+    await renderHomePanel([baseEntry]);
 
     expect(screen.getByText("5173")).toBeTruthy();
     expect(screen.getAllByText("node").length).toBeGreaterThan(0);
     expect(screen.getByText("PID 123")).toBeTruthy();
   });
 
-  it("disables kill for protected rows", () => {
-    renderHomePanel([
+  it("disables kill for protected rows", async () => {
+    await renderHomePanel([
       {
         ...baseEntry,
         killDisabledReason: "Root-owned process; Portsy will not request sudo.",
@@ -92,26 +125,13 @@ describe("HomeRouteView", () => {
   });
 
   it("shows the row stop action as busy while killing a port", async () => {
-    let resolveKill!: (report: KillReport) => void;
-    const killPromise = new Promise<KillReport>((resolve) => {
+    let resolveKill!: (report: Awaited<ReturnType<typeof tauri.killPort>>) => void;
+    const killPromise = new Promise<Awaited<ReturnType<typeof tauri.killPort>>>((resolve) => {
       resolveKill = resolve;
     });
-    const onKillPort = vi.fn(() => killPromise);
+    tauri.killPort.mockReturnValue(killPromise);
 
-    render(
-      <HomeRouteView
-        snapshot={snapshot([baseEntry])}
-        settings={defaultSettings}
-        loading={false}
-        message={null}
-        onRefresh={vi.fn()}
-        onKillPort={onKillPort}
-        onKillAll={vi.fn()}
-        onOpenPort={vi.fn()}
-        onOpenSettings={vi.fn()}
-        onSaveSettings={vi.fn()}
-      />,
-    );
+    await renderHomePanel([baseEntry]);
 
     fireEvent.click(screen.getByRole("button", { name: "Kill" }));
 
@@ -130,11 +150,11 @@ describe("HomeRouteView", () => {
       forced: false,
       message: "Sent SIGTERM and the port was released.",
     });
-    await waitFor(() => expect(onKillPort).toHaveBeenCalledWith(baseEntry));
+    await waitFor(() => expect(tauri.killPort).toHaveBeenCalledWith(123, 5173));
   });
 
   it("confirms kill all before invoking the action", async () => {
-    const onKillAll = vi.fn().mockResolvedValue([
+    tauri.killAllWatched.mockResolvedValue([
       {
         ok: true,
         report: {
@@ -149,45 +169,20 @@ describe("HomeRouteView", () => {
       },
     ]);
 
-    render(
-      <HomeRouteView
-        snapshot={snapshot([baseEntry])}
-        settings={defaultSettings}
-        loading={false}
-        message={null}
-        onRefresh={vi.fn()}
-        onKillPort={vi.fn()}
-        onKillAll={onKillAll}
-        onOpenPort={vi.fn()}
-        onOpenSettings={vi.fn()}
-        onSaveSettings={vi.fn()}
-      />,
-    );
+    await renderHomePanel([baseEntry]);
 
     fireEvent.click(screen.getByRole("button", { name: "Kill All Watched" }));
-    expect(onKillAll).not.toHaveBeenCalled();
+    expect(tauri.killAllWatched).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole("button", { name: "Confirm" }));
-    await waitFor(() => expect(onKillAll).toHaveBeenCalledOnce());
+    await waitFor(() => expect(tauri.killAllWatched).toHaveBeenCalledOnce());
   });
 
-  it("uses the settings action to leave the home panel", () => {
+  it("uses the settings action to leave the home panel", async () => {
+    const model = await createStartedModel([baseEntry]);
     const onOpenSettings = vi.fn();
 
-    render(
-      <HomeRouteView
-        snapshot={snapshot([baseEntry])}
-        settings={defaultSettings}
-        loading={false}
-        message={null}
-        onRefresh={vi.fn()}
-        onKillPort={vi.fn()}
-        onKillAll={vi.fn()}
-        onOpenPort={vi.fn()}
-        onOpenSettings={onOpenSettings}
-        onSaveSettings={vi.fn()}
-      />,
-    );
+    render(<PortsyMainView app={model} onOpenSettings={onOpenSettings} />);
 
     fireEvent.click(screen.getByRole("button", { name: "Settings" }));
 
@@ -195,95 +190,58 @@ describe("HomeRouteView", () => {
     expect(screen.getByLabelText("Watched ports")).toBeTruthy();
   });
 
-  it("clears app messages from the home panel dismiss action", () => {
-    const onClearMessage = vi.fn();
+  it("clears app messages from the home panel dismiss action", async () => {
+    const model = await createStartedModel();
+    model.notifications.error("Refresh failed.");
 
-    render(
-      <HomeRouteView
-        snapshot={snapshot([])}
-        settings={defaultSettings}
-        loading={false}
-        message="Refresh failed."
-        onClearMessage={onClearMessage}
-        onRefresh={vi.fn()}
-        onKillPort={vi.fn()}
-        onKillAll={vi.fn()}
-        onOpenPort={vi.fn()}
-        onOpenSettings={vi.fn()}
-        onSaveSettings={vi.fn()}
-      />,
-    );
+    render(<PortsyMainView app={model} onOpenSettings={vi.fn()} />);
 
     const toast = screen.getByRole("status");
     expect(toast.className).toContain("fixed");
     expect(toast.className).toContain("bottom-3");
     expect(toast.className).toContain("left-3");
+    expect(toast.className).toContain("text-danger");
 
     fireEvent.click(screen.getByRole("button", { name: "Dismiss notification" }));
 
-    expect(onClearMessage).toHaveBeenCalledOnce();
+    expect(model.notifications.current.value).toBeNull();
   });
 
   it("clears app messages after three seconds", async () => {
     vi.useFakeTimers();
-    const onClearMessage = vi.fn();
+    const model = await createStartedModel();
+    model.notifications.error("Refresh failed.");
 
-    render(
-      <HomeRouteView
-        snapshot={snapshot([])}
-        settings={defaultSettings}
-        loading={false}
-        message="Refresh failed."
-        onClearMessage={onClearMessage}
-        onRefresh={vi.fn()}
-        onKillPort={vi.fn()}
-        onKillAll={vi.fn()}
-        onOpenPort={vi.fn()}
-        onOpenSettings={vi.fn()}
-        onSaveSettings={vi.fn()}
-      />,
-    );
+    render(<PortsyMainView app={model} onOpenSettings={vi.fn()} />);
 
     expect(screen.getByRole("status")).toBeTruthy();
-    expect(onClearMessage).not.toHaveBeenCalled();
+    expect(model.notifications.current.value).not.toBeNull();
 
     vi.advanceTimersByTime(2_999);
-    expect(onClearMessage).not.toHaveBeenCalled();
+    expect(model.notifications.current.value).not.toBeNull();
 
     vi.advanceTimersByTime(1);
-    await waitFor(() => expect(onClearMessage).toHaveBeenCalledOnce());
+    await waitFor(() => expect(model.notifications.current.value).toBeNull());
   });
 
-  it("does not restart the toast timer when the view rerenders with the same message", async () => {
+  it("does not restart the toast timer when the view rerenders with the same notice", async () => {
     vi.useFakeTimers();
-    const onClearMessage = vi.fn();
-    const props = {
-      snapshot: snapshot([]),
-      settings: defaultSettings,
-      loading: false,
-      message: "Refresh failed.",
-      onClearMessage,
-      onRefresh: vi.fn(),
-      onKillPort: vi.fn(),
-      onKillAll: vi.fn(),
-      onOpenPort: vi.fn(),
-      onOpenSettings: vi.fn(),
-      onSaveSettings: vi.fn(),
-    };
+    const model = await createStartedModel();
+    model.notifications.error("Refresh failed.");
 
-    const { rerender } = render(<HomeRouteView {...props} />);
+    const { rerender } = render(<PortsyMainView app={model} onOpenSettings={vi.fn()} />);
 
     vi.advanceTimersByTime(2_000);
-    rerender(<HomeRouteView {...props} snapshot={{ ...props.snapshot, scannedAtMs: 2 }} />);
+    rerender(<PortsyMainView app={model} onOpenSettings={vi.fn()} />);
     vi.advanceTimersByTime(999);
-    expect(onClearMessage).not.toHaveBeenCalled();
+    expect(model.notifications.current.value).not.toBeNull();
 
     vi.advanceTimersByTime(1);
-    await waitFor(() => expect(onClearMessage).toHaveBeenCalledOnce());
+    await waitFor(() => expect(model.notifications.current.value).toBeNull());
   });
 
-  it("keeps kill all in the bottom action area on the main view", () => {
-    renderHomePanel([baseEntry]);
+  it("keeps kill all in the bottom action area on the main view", async () => {
+    await renderHomePanel([baseEntry]);
 
     const button = screen.getByRole("button", { name: "Kill All Watched" });
     const footer = button.closest("footer");
@@ -293,73 +251,44 @@ describe("HomeRouteView", () => {
   });
 
   it("opens a port in the default browser", async () => {
-    const onOpenPort = vi.fn().mockResolvedValue("http://localhost:5173");
-
-    render(
-      <HomeRouteView
-        snapshot={snapshot([baseEntry])}
-        settings={defaultSettings}
-        loading={false}
-        message={null}
-        onRefresh={vi.fn()}
-        onKillPort={vi.fn()}
-        onKillAll={vi.fn()}
-        onOpenPort={onOpenPort}
-        onOpenSettings={vi.fn()}
-        onSaveSettings={vi.fn()}
-      />,
-    );
+    await renderHomePanel([baseEntry]);
 
     fireEvent.click(screen.getByRole("button", { name: "Open" }));
 
-    await waitFor(() => expect(onOpenPort).toHaveBeenCalledWith(baseEntry));
+    await waitFor(() => expect(tauri.openPort).toHaveBeenCalledWith(5173));
     expect(screen.queryByText("Opened port 5173.")).toBeNull();
   });
 });
 
-describe("SettingsRouteView", () => {
-  it("renders settings without the watched ports panel", () => {
-    renderSettingsPanel();
+describe("PortsySettingsView", () => {
+  it("renders settings without the watched ports panel", async () => {
+    await renderSettingsPanel();
 
     expect(screen.getByRole("heading", { name: "Settings" })).toBeTruthy();
     expect(screen.queryByLabelText("Watched ports")).toBeNull();
   });
 
-  it("clears app messages from the settings dismiss action", () => {
-    const onClearMessage = vi.fn();
+  it("clears app messages from the settings dismiss action", async () => {
+    const model = await createStartedModel();
+    model.notifications.error("Save failed.");
 
-    render(
-      <SettingsRouteView
-        settings={defaultSettings}
-        message="Save failed."
-        onBack={vi.fn()}
-        onClearMessage={onClearMessage}
-        onSaveSettings={vi.fn()}
-      />,
-    );
+    render(<PortsySettingsView app={model} onBack={vi.fn()} />);
 
     fireEvent.click(screen.getByRole("button", { name: "Dismiss notification" }));
 
-    expect(onClearMessage).toHaveBeenCalledOnce();
+    expect(model.notifications.current.value).toBeNull();
   });
 
   it("saves the keep-open development setting when toggled", async () => {
-    const onSaveSettings = vi.fn().mockImplementation(async (settings) => settings);
     const onBack = vi.fn();
+    const model = await createStartedModel();
 
-    render(
-      <SettingsRouteView
-        settings={defaultSettings}
-        message={null}
-        onBack={onBack}
-        onSaveSettings={onSaveSettings}
-      />,
-    );
+    render(<PortsySettingsView app={model} onBack={onBack} />);
 
     fireEvent.click(screen.getByLabelText("Keep open when unfocused"));
 
     await waitFor(() =>
-      expect(onSaveSettings).toHaveBeenCalledWith(
+      expect(tauri.saveSettings).toHaveBeenCalledWith(
         expect.objectContaining({ keepOpenWhenUnfocused: true }),
       ),
     );
@@ -368,8 +297,8 @@ describe("SettingsRouteView", () => {
     expect(screen.queryByText("Settings saved.")).toBeNull();
   });
 
-  it("resets local settings drafts only when the settings revision changes", () => {
-    const onSaveSettings = vi.fn().mockImplementation(async (settings) => settings);
+  it("resets local settings drafts only when the settings revision changes", async () => {
+    const model = await createStartedModel();
     const firstSettings = {
       ...defaultSettings,
       lastUpdatedAt: 1,
@@ -383,40 +312,21 @@ describe("SettingsRouteView", () => {
       excludedProcessNames: ["Raycast"],
     };
 
-    const { rerender } = render(
-      <SettingsRouteView
-        settings={firstSettings}
-        message={null}
-        onBack={vi.fn()}
-        onSaveSettings={onSaveSettings}
-      />,
-    );
+    render(<PortsySettingsView app={model} onBack={vi.fn()} />);
 
     fireEvent.input(screen.getByLabelText("Port ranges"), {
       target: { value: "draft value" },
     });
-    rerender(
-      <SettingsRouteView
-        settings={{ ...nextSettings, lastUpdatedAt: firstSettings.lastUpdatedAt }}
-        message={null}
-        onBack={vi.fn()}
-        onSaveSettings={onSaveSettings}
-      />,
-    );
+
+    tauri.saveSettings.mockImplementationOnce(async (settings) => settings);
+    await model.saveSettings({ ...nextSettings, lastUpdatedAt: firstSettings.lastUpdatedAt });
 
     expect((screen.getByLabelText("Port ranges") as HTMLInputElement).value).toBe("draft value");
 
-    rerender(
-      <SettingsRouteView
-        settings={nextSettings}
-        message={null}
-        onBack={vi.fn()}
-        onSaveSettings={onSaveSettings}
-      />,
-    );
+    await model.saveSettings(nextSettings);
 
-    expect((screen.getByLabelText("Port ranges") as HTMLInputElement).value).toBe(
-      "4000-4002",
+    await waitFor(() =>
+      expect((screen.getByLabelText("Port ranges") as HTMLInputElement).value).toBe("4000-4002"),
     );
     expect((screen.getByLabelText("Excluded processes") as HTMLTextAreaElement).value).toBe(
       "Raycast",
@@ -428,16 +338,7 @@ describe("SettingsRouteView", () => {
   });
 
   it("saves port ranges on blur", async () => {
-    const onSaveSettings = vi.fn().mockImplementation(async (settings) => settings);
-
-    render(
-      <SettingsRouteView
-        settings={defaultSettings}
-        message={null}
-        onBack={vi.fn()}
-        onSaveSettings={onSaveSettings}
-      />,
-    );
+    await renderSettingsPanel();
 
     fireEvent.input(screen.getByLabelText("Port ranges"), {
       target: { value: "4000-4002, 5173" },
@@ -445,7 +346,7 @@ describe("SettingsRouteView", () => {
     fireEvent.blur(screen.getByLabelText("Port ranges"));
 
     await waitFor(() =>
-      expect(onSaveSettings).toHaveBeenCalledWith(
+      expect(tauri.saveSettings).toHaveBeenCalledWith(
         expect.objectContaining({
           ranges: [
             { start: 4000, end: 4002 },
@@ -457,16 +358,7 @@ describe("SettingsRouteView", () => {
   });
 
   it("saves excluded processes on blur", async () => {
-    const onSaveSettings = vi.fn().mockImplementation(async (settings) => settings);
-
-    render(
-      <SettingsRouteView
-        settings={defaultSettings}
-        message={null}
-        onBack={vi.fn()}
-        onSaveSettings={onSaveSettings}
-      />,
-    );
+    await renderSettingsPanel();
 
     fireEvent.input(screen.getByLabelText("Excluded processes"), {
       target: { value: "Raycast, Google Chrome" },
@@ -474,7 +366,7 @@ describe("SettingsRouteView", () => {
     fireEvent.blur(screen.getByLabelText("Excluded processes"));
 
     await waitFor(() =>
-      expect(onSaveSettings).toHaveBeenCalledWith(
+      expect(tauri.saveSettings).toHaveBeenCalledWith(
         expect.objectContaining({
           excludedProcessNames: ["Google Chrome", "Raycast"],
         }),
@@ -482,17 +374,11 @@ describe("SettingsRouteView", () => {
     );
   });
 
-  it("uses the back action to leave settings", () => {
+  it("uses the back action to leave settings", async () => {
+    const model = await createStartedModel();
     const onBack = vi.fn();
 
-    render(
-      <SettingsRouteView
-        settings={defaultSettings}
-        message={null}
-        onBack={onBack}
-        onSaveSettings={vi.fn()}
-      />,
-    );
+    render(<PortsySettingsView app={model} onBack={onBack} />);
 
     fireEvent.click(screen.getByRole("button", { name: "Back" }));
     expect(onBack).toHaveBeenCalledOnce();

@@ -1,46 +1,22 @@
 import { ExternalLink, EyeOff, LoaderCircle, RefreshCw, Settings, SquareStop } from "lucide-preact";
-import type { PortEntry } from "../lib/types";
+import type { PortsyModel } from "../app.model";
+import { getEntryDisplayName } from "../lib/utils";
 import { PortsyStatusMessage } from "./PortsyStatusMessage";
 import { Button, Panel, Shell, ViewHeader } from "./PortsyUi";
-import { getEntryDisplayName } from "../lib/utils";
 
 interface PortsyMainViewProps {
-  activeMessage: string | null;
-  busyKey: string | null;
-  confirmKillAll: boolean;
-  disabledKillAll: PortEntry[];
-  entries: PortEntry[];
-  killableEntries: PortEntry[];
-  loading: boolean;
-  onCancelKillAll: () => void;
-  onConfirmKillAll: () => void;
-  onDismissMessage: () => void;
-  onExcludeProcess: (entry: PortEntry) => void;
-  onKillEntry: (entry: PortEntry) => void;
-  onOpenEntry: (entry: PortEntry) => void;
+  app: PortsyModel;
   onOpenSettings: () => void;
-  onRefresh: () => void;
-  onShowKillAll: () => void;
 }
 
-export function PortsyMainView({
-  activeMessage,
-  busyKey,
-  confirmKillAll,
-  disabledKillAll,
-  entries,
-  killableEntries,
-  loading,
-  onCancelKillAll,
-  onConfirmKillAll,
-  onDismissMessage,
-  onExcludeProcess,
-  onKillEntry,
-  onOpenEntry,
-  onOpenSettings,
-  onRefresh,
-  onShowKillAll,
-}: PortsyMainViewProps) {
+export function PortsyMainView({ app, onOpenSettings }: PortsyMainViewProps) {
+  const entries = app.ports.entries.value;
+  const killableEntries = app.ports.killableEntries.value;
+  const nonKillableEntries = app.ports.nonKillableEntries.value;
+  const busyKey = app.ports.busyKey.value;
+  const loading = app.loading.value;
+  const notice = app.notifications.current.value;
+
   return (
     <Shell>
       <ViewHeader
@@ -49,7 +25,7 @@ export function PortsyMainView({
             <Button
               size="icon"
               aria-label="Refresh"
-              onClick={onRefresh}
+              onClick={() => void app.ports.refresh()}
               disabled={loading}
               title="Refresh"
             >
@@ -64,11 +40,9 @@ export function PortsyMainView({
         title="Portsy"
       />
 
-      {activeMessage && (
-        <PortsyStatusMessage message={activeMessage} onDismiss={onDismissMessage} />
-      )}
+      {notice && <PortsyStatusMessage notice={notice} onDismiss={app.notifications.clear} />}
 
-      {confirmKillAll && (
+      {app.ports.killAllConfirmationVisible.value && (
         <Panel
           as="section"
           class="flex flex-col gap-2.5 p-3"
@@ -91,17 +65,17 @@ export function PortsyMainView({
               </li>
             ))}
           </ul>
-          {disabledKillAll.length > 0 && (
+          {nonKillableEntries.length > 0 && (
             <p class="m-0 text-[13px] text-muted">
-              {disabledKillAll.length} watched row{disabledKillAll.length === 1 ? "" : "s"} cannot
-              be killed.
+              {nonKillableEntries.length} watched row
+              {nonKillableEntries.length === 1 ? "" : "s"} cannot be killed.
             </p>
           )}
           <div class="flex items-center justify-end gap-2">
-            <Button onClick={onCancelKillAll}>Cancel</Button>
+            <Button onClick={app.ports.cancelKillAll}>Cancel</Button>
             <Button
               variant="danger"
-              onClick={onConfirmKillAll}
+              onClick={() => void app.ports.confirmKillAll()}
               disabled={busyKey === "kill-all"}
               aria-busy={busyKey === "kill-all"}
             >
@@ -163,7 +137,7 @@ export function PortsyMainView({
                   size="icon"
                   aria-label="Open"
                   disabled={busyKey === `open:${entry.pid}:${entry.port}`}
-                  onClick={() => onOpenEntry(entry)}
+                  onClick={() => void app.ports.openEntry(entry)}
                   title="Open"
                 >
                   <ExternalLink aria-hidden="true" size={15} />
@@ -172,7 +146,7 @@ export function PortsyMainView({
                   size="icon"
                   aria-label="Hide"
                   disabled={busyKey === `exclude:${entry.pid}:${entry.port}`}
-                  onClick={() => onExcludeProcess(entry)}
+                  onClick={() => void app.ports.excludeProcess(entry)}
                   title="Hide"
                 >
                   <EyeOff aria-hidden="true" size={15} />
@@ -183,7 +157,7 @@ export function PortsyMainView({
                   aria-label="Kill"
                   aria-busy={isStopping}
                   disabled={Boolean(entry.killDisabledReason) || isStopping}
-                  onClick={() => onKillEntry(entry)}
+                  onClick={() => void app.ports.killEntry(entry)}
                   title={isStopping ? "Stopping" : "Kill"}
                 >
                   {isStopping ? (
@@ -202,7 +176,7 @@ export function PortsyMainView({
         <Button
           variant="danger"
           disabled={killableEntries.length === 0 || busyKey === "kill-all"}
-          onClick={onShowKillAll}
+          onClick={app.ports.showKillAll}
         >
           Kill All Watched
         </Button>
