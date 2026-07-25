@@ -1,39 +1,17 @@
+import type { PortsyModel } from "../app.model";
 import { PortsyStatusMessage } from "./PortsyStatusMessage";
 import { Button, FieldLabel, Panel, Shell, TextArea, TextInput, ViewHeader } from "./PortsyUi";
 
 interface PortsySettingsViewProps {
-  activeMessage: string | null;
-  busyKey: string | null;
-  draftExcludedProcessNames: string;
-  draftRanges: string;
-  keepOpenWhenUnfocused: boolean;
-  launchAtLogin: boolean;
+  app: PortsyModel;
   onBack: () => void;
-  onDismissMessage: () => void;
-  onDraftExcludedProcessNamesBlur: () => void;
-  onDraftExcludedProcessNamesChange: (value: string) => void;
-  onDraftRangesBlur: () => void;
-  onDraftRangesChange: (value: string) => void;
-  onKeepOpenWhenUnfocusedChange: (value: boolean) => void;
-  onLaunchAtLoginChange: (value: boolean) => void;
 }
 
-export function PortsySettingsView({
-  activeMessage,
-  busyKey,
-  draftExcludedProcessNames,
-  draftRanges,
-  keepOpenWhenUnfocused,
-  launchAtLogin,
-  onBack,
-  onDismissMessage,
-  onDraftExcludedProcessNamesBlur,
-  onDraftExcludedProcessNamesChange,
-  onDraftRangesBlur,
-  onDraftRangesChange,
-  onKeepOpenWhenUnfocusedChange,
-  onLaunchAtLoginChange,
-}: PortsySettingsViewProps) {
+export function PortsySettingsView({ app, onBack }: PortsySettingsViewProps) {
+  const draft = app.settingsDraft;
+  const busyKey = draft.busyKey.value;
+  const notice = app.notifications.current.value;
+
   return (
     <Shell>
       <ViewHeader
@@ -47,9 +25,7 @@ export function PortsySettingsView({
         variant="back"
       />
 
-      {activeMessage && (
-        <PortsyStatusMessage message={activeMessage} onDismiss={onDismissMessage} />
-      )}
+      {notice && <PortsyStatusMessage notice={notice} onDismiss={app.notifications.clear} />}
 
       <Panel
         aria-label="Settings"
@@ -59,9 +35,9 @@ export function PortsySettingsView({
         <FieldLabel>
           Port ranges
           <TextInput
-            value={draftRanges}
-            onInput={(event) => onDraftRangesChange(event.currentTarget.value)}
-            onBlur={onDraftRangesBlur}
+            value={draft.draftRanges.value}
+            onInput={(event) => draft.setDraftRanges(event.currentTarget.value)}
+            onBlur={draft.saveRangesOnBlur}
             placeholder="3000-9999, 5173"
           />
         </FieldLabel>
@@ -69,9 +45,9 @@ export function PortsySettingsView({
           <input
             class="h-4 w-4 accent-accent"
             type="checkbox"
-            checked={launchAtLogin}
+            checked={draft.launchAtLogin.value}
             disabled={busyKey === "launchAtLogin"}
-            onChange={(event) => onLaunchAtLoginChange(event.currentTarget.checked)}
+            onChange={(event) => draft.saveLaunchAtLoginOnChange(event.currentTarget.checked)}
           />
           Launch at login
         </label>
@@ -79,18 +55,20 @@ export function PortsySettingsView({
           <input
             class="h-4 w-4 accent-accent"
             type="checkbox"
-            checked={keepOpenWhenUnfocused}
+            checked={draft.keepOpenWhenUnfocused.value}
             disabled={busyKey === "keepOpenWhenUnfocused"}
-            onChange={(event) => onKeepOpenWhenUnfocusedChange(event.currentTarget.checked)}
+            onChange={(event) =>
+              draft.saveKeepOpenWhenUnfocusedOnChange(event.currentTarget.checked)
+            }
           />
           Keep open when unfocused
         </label>
         <FieldLabel>
           Excluded processes
           <TextArea
-            value={draftExcludedProcessNames}
-            onInput={(event) => onDraftExcludedProcessNamesChange(event.currentTarget.value)}
-            onBlur={onDraftExcludedProcessNamesBlur}
+            value={draft.draftExcludedProcessNames.value}
+            onInput={(event) => draft.setDraftExcludedProcessNames(event.currentTarget.value)}
+            onBlur={draft.saveExcludedProcessNamesOnBlur}
             placeholder="Google Chrome, Hammerspoon, Raycast"
           />
         </FieldLabel>

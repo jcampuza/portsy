@@ -1,49 +1,47 @@
 import {
   getSettings,
   getSnapshot,
-  killAllWatched,
-  killPort,
-  openPort,
   onSnapshot,
   saveSettings,
   startMonitor,
 } from "./lib/tauri";
-import {
-  defaultSettings,
-  type AppSettings,
-  type KillOutcome,
-  type KillReport,
-  type PortEntry,
-  type PortSnapshot,
-} from "./lib/types";
+import { defaultSettings, type AppSettings, type PortSnapshot } from "./lib/types";
+import { createAsyncListenerCleanup } from "./lib/utils";
 import { createModel, effect, signal, type Model, type ReadonlySignal } from "@preact/signals";
 import { Result } from "better-result";
-import { createAsyncListenerCleanup, iife } from "./lib/utils";
+import {
+  createNotifications,
+  errorMessage,
+  type PortsyNotifications,
+} from "./models/notifications.model";
+import { createPortsModel, type PortsyPorts } from "./models/ports.model";
+import {
+  createSettingsDraftModel,
+  type PortsySettingsDraft,
+} from "./models/settings-draft.model";
+
+export type { PortsyNotice } from "./models/notifications.model";
 
 export interface Portsy {
   settings: ReadonlySignal<AppSettings>;
   snapshot: ReadonlySignal<PortSnapshot | null>;
   loading: ReadonlySignal<boolean>;
-  message: ReadonlySignal<string | null>;
-  clearMessage: () => void;
-  refresh: () => Promise<void>;
-  killPort: (entry: PortEntry) => Promise<KillReport>;
-  killAllWatched: (snapshot: PortSnapshot) => Promise<KillOutcome[]>;
-  openPort: (entry: PortEntry) => Promise<string>;
+  notifications: PortsyNotifications;
+  ports: PortsyPorts;
+  settingsDraft: PortsySettingsDraft;
+  start: () => Promise<void>;
+  stop: () => void;
   saveSettings: (nextSettings: AppSettings) => Promise<AppSettings>;
 }
 
 export type PortsyModel = Model<Portsy>;
 
-function errorMessage(error: unknown) {
-  return error instanceof Error ? error.message : String(error);
-}
-
 export const PortsyModel = createModel<Portsy>(() => {
   const settings = signal(defaultSettings);
   const snapshot = signal<PortSnapshot | null>(null);
   const loading = signal(true);
-  const message = signal<string | null>(null);
+  const running = signal(false);
+  const notifications = createNotifications();
 
   const refresh = async () => {
     const result = await Result.tryPromise({
@@ -54,94 +52,103 @@ export const PortsyModel = createModel<Portsy>(() => {
     result.match({
       ok: (next) => {
         snapshot.value = next;
-        message.value = null;
       },
       err: (error) => {
-        message.value = error;
+        notifications.error(error);
       },
     });
 
     loading.value = false;
   };
 
-  const cleanupSnapshotListener = createAsyncListenerCleanup(
-    onSnapshot,
-    (next) => {
-      snapshot.value = next;
-    },
-    (error) => {
-      message.value = errorMessage(error);
-    },
-  );
+  const saveAppSettings = async (nextSettings: AppSettings) => {
+    const saved = await saveSettings(nextSettings);
+    settings.value = saved;
+    await refresh();
+    return saved;
+  };
 
-  effect(() => cleanupSnapshotListener);
+  effect(() => {
+    if (!running.value) return;
 
-  iife(async () => {
-    const initialState = await Result.tryPromise({
-      try: () => Promise.all([getSettings(), getSnapshot()]),
-      catch: errorMessage,
-    });
-
-    const shouldStartMonitor = initialState.match({
-      ok: ([loadedSettings, loadedSnapshot]) => {
-        settings.value = loadedSettings;
-        snapshot.value = loadedSnapshot;
-        return true;
+    return createAsyncListenerCleanup(
+      onSnapshot,
+      (next) => {
+        snapshot.value = next;
       },
-      err: (error) => {
-        message.value = error;
-        return false;
+      (error) => {
+        notifications.error(error);
       },
-    });
+    );
+  });
 
-    if (shouldStartMonitor) {
-      const monitor = await Result.tryPromise({
-        try: startMonitor,
+  const ports = createPortsModel({
+    settings,
+    snapshot,
+    notifications,
+    refresh,
+    saveSettings: saveAppSettings,
+  });
+  const settingsDraft = createSettingsDraftModel(settings, saveAppSettings, notifications);
+
+  let startup: Promise<void> | null = null;
+
+  const start = async () => {
+    if (startup) return startup;
+
+    running.value = true;
+    loading.value = true;
+
+    startup = (async () => {
+      const initialState = await Result.tryPromise({
+        try: () => Promise.all([getSettings(), getSnapshot()]),
         catch: errorMessage,
       });
 
-      monitor.match({
-        ok: () => undefined,
+      const shouldStartMonitor = initialState.match({
+        ok: ([loadedSettings, loadedSnapshot]) => {
+          settings.value = loadedSettings;
+          snapshot.value = loadedSnapshot;
+          return true;
+        },
         err: (error) => {
-          message.value = error;
+          notifications.error(error);
+          return false;
         },
       });
-    }
 
-    loading.value = false;
-  });
+      if (shouldStartMonitor) {
+        const monitor = await Result.tryPromise({
+          try: startMonitor,
+          catch: errorMessage,
+        });
+
+        monitor.match({
+          ok: () => undefined,
+          err: (error) => {
+            notifications.error(error);
+          },
+        });
+      }
+
+      loading.value = false;
+    })();
+
+    return startup;
+  };
 
   return {
     settings,
     snapshot,
     loading,
-    message,
-
-    clearMessage: () => {
-      message.value = null;
+    notifications,
+    ports,
+    settingsDraft,
+    start,
+    stop: () => {
+      running.value = false;
+      startup = null;
     },
-
-    refresh: refresh,
-
-    killPort: async (entry: PortEntry) => {
-      const report = await killPort(entry.pid, entry.port);
-      return report;
-    },
-
-    killAllWatched: async (snapshot: PortSnapshot) => {
-      const outcomes = await killAllWatched(snapshot);
-      return outcomes;
-    },
-
-    openPort: async (entry: PortEntry) => {
-      return openPort(entry.port);
-    },
-
-    saveSettings: async (nextSettings: AppSettings) => {
-      const saved = await saveSettings(nextSettings);
-      settings.value = saved;
-      await refresh();
-      return saved;
-    },
+    saveSettings: saveAppSettings,
   };
 });

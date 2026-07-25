@@ -1,12 +1,18 @@
 import { useModel, type Model } from "@preact/signals";
 import { PortsyModel, type Portsy } from "./app.model";
 import { createContext, type ComponentChildren } from "preact";
-import { useContext } from "preact/hooks";
+import { useContext, useEffect } from "preact/hooks";
 
 const AppContext = createContext<Model<Portsy> | null>(null);
 
 export const AppProvider = ({ children }: { children: ComponentChildren }) => {
   const value = useModel(() => new PortsyModel());
+
+  useEffect(() => {
+    void value.start();
+    return () => value.stop();
+  }, [value]);
+
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
 };
 
