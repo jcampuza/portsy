@@ -25,6 +25,7 @@ const baseEntry: PortEntry = {
   pid: 123,
   processName: "node",
   command: "node ./node_modules/.bin/vite --port 5173",
+  workingDirectory: "/Users/joseph/code/board-c",
   user: "joseph",
   bindAddresses: ["127.0.0.1"],
   killDisabledReason: null,
@@ -108,8 +109,28 @@ describe("PortsyMainView", () => {
     await renderHomePanel([baseEntry]);
 
     expect(screen.getByText("5173")).toBeTruthy();
-    expect(screen.getAllByText("node").length).toBeGreaterThan(0);
+    expect(screen.getByText("Board C")).toBeTruthy();
+    expect(screen.getByText("~/code/board-c")).toBeTruthy();
     expect(screen.getByText("PID 123")).toBeTruthy();
+    const details = screen.getByText("Details").closest("details")!;
+    expect(details.open).toBe(false);
+    fireEvent.click(screen.getByText("Details"));
+    expect(details.open).toBe(true);
+    expect(screen.getByText(baseEntry.command)).toBeTruthy();
+    expect(screen.getByText(baseEntry.workingDirectory!)).toBeTruthy();
+  });
+
+  it("groups ports owned by the same process and opens each port", async () => {
+    await renderHomePanel([baseEntry, { ...baseEntry, port: 5174 }]);
+
+    expect(screen.getAllByText("PID 123")).toHaveLength(1);
+    expect(screen.getByText("5174")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Open port 5174" }));
+    await waitFor(() => expect(tauri.openPort).toHaveBeenCalledWith(5174));
+
+    fireEvent.click(screen.getByRole("button", { name: "Kill All Watched" }));
+    expect(screen.getByText("1 process will receive SIGTERM.")).toBeTruthy();
+    expect(screen.getByText("5173, 5174")).toBeTruthy();
   });
 
   it("disables kill for protected rows", async () => {
@@ -253,7 +274,7 @@ describe("PortsyMainView", () => {
   it("opens a port in the default browser", async () => {
     await renderHomePanel([baseEntry]);
 
-    fireEvent.click(screen.getByRole("button", { name: "Open" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open port 5173" }));
 
     await waitFor(() => expect(tauri.openPort).toHaveBeenCalledWith(5173));
     expect(screen.queryByText("Opened port 5173.")).toBeNull();
@@ -404,6 +425,7 @@ describe("settings parsing and display helpers", () => {
     expect(
       getEntryDisplayName({
         ...baseEntry,
+        workingDirectory: null,
         command: "node /Users/josephcampuzano/me/portless/node_modules/.bin/vite --port 5173",
       }),
     ).toBe("Portless");
@@ -418,5 +440,9 @@ describe("settings parsing and display helpers", () => {
           "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome --remote-debugging-port=9222",
       }),
     ).toBe("Google Chrome");
+  });
+
+  it("keeps generic names when the directory is a home folder", () => {
+    expect(getEntryDisplayName({ ...baseEntry, workingDirectory: "/Users/joseph", command: "node" })).toBe("node");
   });
 });

@@ -1,6 +1,7 @@
 import { computed, signal, type ReadonlySignal } from "@preact/signals";
 import { killAllWatched, killPort, openPort } from "../lib/tauri";
 import type { AppSettings, PortEntry, PortSnapshot } from "../lib/types";
+import { groupEntriesByPid } from "../lib/utils";
 import type { PortsyNotifications } from "./notifications.model";
 
 type BusyKey = string | null;
@@ -36,8 +37,9 @@ export function createPortsModel({
   saveSettings,
 }: CreatePortsModelOptions): PortsyPorts {
   const entries = computed(() => snapshot.value?.entries ?? []);
-  const killableEntries = computed(() => entries.value.filter((entry) => !entry.killDisabledReason));
-  const nonKillableEntries = computed(() => entries.value.filter((entry) => entry.killDisabledReason));
+  const processes = computed(() => groupEntriesByPid(entries.value).map((group) => group[0]));
+  const killableEntries = computed(() => processes.value.filter((entry) => !entry.killDisabledReason));
+  const nonKillableEntries = computed(() => processes.value.filter((entry) => entry.killDisabledReason));
   const busyKey = signal<BusyKey>(null);
   const killAllConfirmationVisible = signal(false);
 

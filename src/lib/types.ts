@@ -18,6 +18,7 @@ export interface PortEntry {
   pid: number
   processName: string
   command: string
+  workingDirectory: string | null
   user: string
   bindAddresses: string[]
   killDisabledReason: string | null
