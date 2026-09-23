@@ -71,8 +71,40 @@ export function parseProcessNames(value: string) {
 }
 
 export function getEntryDisplayName(entry: PortEntry) {
+  const appName = appNameFromPath(entry.command);
+  if (appName) return appName;
+  if (/^(node|bun|deno|python\d*(?:\.\d+)*|ruby|java)$/i.test(entry.processName)) {
+    const projectName = nameFromWorkingDirectory(entry.workingDirectory);
+    if (projectName) return projectName;
+  }
   const commandName = displayNameFromCommand(entry.command, entry.processName);
   return commandName || entry.processName;
+}
+
+function nameFromWorkingDirectory(directory: string | null) {
+  if (!directory || directory === "/" || /^\/Users\/[^/]+\/?$/.test(directory)) return null;
+  const name = directory.replace(/\/+$/, "").split("/").at(-1);
+  if (!name || ["tmp", "var", "Applications", "Users", "code", "src", "projects", "repos"].includes(name)) return null;
+  return humanizePathSegment(name);
+}
+
+export function abbreviateWorkingDirectory(entry: PortEntry) {
+  const directory = entry.workingDirectory;
+  if (!directory) return null;
+  const home = `/Users/${entry.user}`;
+  return directory === home || directory.startsWith(`${home}/`)
+    ? `~${directory.slice(home.length)}`
+    : directory;
+}
+
+export function groupEntriesByPid(entries: PortEntry[]) {
+  const groups = new Map<number, PortEntry[]>();
+  for (const entry of entries) {
+    const group = groups.get(entry.pid) ?? [];
+    group.push(entry);
+    groups.set(entry.pid, group);
+  }
+  return [...groups.values()];
 }
 
 function displayNameFromCommand(command: string, processName: string) {

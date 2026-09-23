@@ -139,6 +139,7 @@ pub struct PortEntry {
     pub pid: u32,
     pub process_name: String,
     pub command: String,
+    pub working_directory: Option<String>,
     pub user: String,
     pub bind_addresses: Vec<String>,
     pub kill_disabled_reason: Option<String>,
@@ -180,7 +181,7 @@ pub fn scan_now(config: &MonitorConfig) -> Result<PortSnapshot> {
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let mut snapshot = parse_lsof_output(&stdout, config);
-    enrich_commands(&mut snapshot);
+    enrich_process_details(&mut snapshot);
     Ok(snapshot)
 }
 
@@ -199,11 +200,12 @@ pub fn kill_all_watched(
     config: &MonitorConfig,
     snapshot: &PortSnapshot,
 ) -> Vec<Result<KillReport>> {
+    let mut seen_pids = BTreeSet::new();
     snapshot
         .entries
         .iter()
-        .filter(|entry| config.watches(entry.port))
-        .map(|entry| kill_entry(config, entry))
+        .filter(|entry| config.watches(entry.port) && seen_pids.insert(entry.pid))
+        .map(|entry| kill_pid_for_port(config, entry.pid, entry.port))
         .collect()
 }
 
@@ -268,6 +270,7 @@ pub fn parse_lsof_output(output: &str, config: &MonitorConfig) -> PortSnapshot {
                 pid: draft.pid,
                 process_name: draft.process_name,
                 command: String::new(),
+                working_directory: None,
                 user: draft.user,
                 bind_addresses: draft.bind_addresses.into_iter().collect(),
                 kill_disabled_reason,
@@ -394,10 +397,53 @@ fn signal(pid: u32, signal: i32) -> Result<()> {
     }
 }
 
-fn enrich_commands(snapshot: &mut PortSnapshot) {
+fn enrich_process_details(snapshot: &mut PortSnapshot) {
+    let working_directories = working_directories(&snapshot.entries);
+    let mut commands = BTreeMap::new();
     for entry in &mut snapshot.entries {
-        entry.command = process_args(entry.pid).unwrap_or_else(|| entry.process_name.clone());
+        let pid = entry.pid;
+        let fallback_name = entry.process_name.clone();
+        entry.command = commands
+            .entry(pid)
+            .or_insert_with(|| process_args(pid).unwrap_or(fallback_name))
+            .clone();
+        entry.working_directory = working_directories.get(&pid).cloned();
     }
+}
+
+fn working_directories(entries: &[PortEntry]) -> BTreeMap<u32, String> {
+    let pids = entries.iter().map(|entry| entry.pid).collect::<BTreeSet<_>>();
+    if pids.is_empty() {
+        return BTreeMap::new();
+    }
+
+    // Select only cwd records for the listener PIDs. One call avoids spawning
+    // an additional lsof process for every row in each refresh.
+    let pid_list = pids.iter().map(u32::to_string).collect::<Vec<_>>().join(",");
+    let Ok(output) = Command::new("lsof")
+        .args(["-nP", "-a", "-p", &pid_list, "-d", "cwd", "-Fpn"])
+        .output()
+    else {
+        return BTreeMap::new();
+    };
+    parse_working_directories(&String::from_utf8_lossy(&output.stdout))
+}
+
+fn parse_working_directories(output: &str) -> BTreeMap<u32, String> {
+    let mut current_pid = None;
+    let mut paths = BTreeMap::new();
+    for line in output.lines() {
+        if let Some(value) = line.strip_prefix('p') {
+            current_pid = value.parse::<u32>().ok();
+        } else if let Some(value) = line.strip_prefix('n') {
+            if value.starts_with('/') {
+                if let Some(pid) = current_pid {
+                    paths.insert(pid, value.to_string());
+                }
+            }
+        }
+    }
+    paths
 }
 
 fn process_args(pid: u32) -> Option<String> {
@@ -607,6 +653,7 @@ n*:abc
                 pid: 999999,
                 process_name: "outside".to_string(),
                 command: "outside".to_string(),
+                working_directory: None,
                 user: std::env::var("USER").unwrap_or_default(),
                 bind_addresses: vec!["*".to_string()],
                 kill_disabled_reason: None,
@@ -616,5 +663,15 @@ n*:abc
         let reports = kill_all_watched(&config, &snapshot);
 
         assert!(reports.is_empty());
+    }
+
+    #[test]
+    fn parses_working_directories_by_pid_and_ignores_unavailable_paths() {
+        let output = "p123\nf10\nn/Users/joseph/code/board-c\np456\nf11\nn/Users/joseph/code/api\np789\nf12\nn (permission denied)\n";
+        let paths = parse_working_directories(output);
+
+        assert_eq!(paths.get(&123).map(String::as_str), Some("/Users/joseph/code/board-c"));
+        assert_eq!(paths.get(&456).map(String::as_str), Some("/Users/joseph/code/api"));
+        assert_eq!(paths.get(&789), None);
     }
 }
